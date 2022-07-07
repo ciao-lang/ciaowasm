@@ -33,12 +33,6 @@ The HTML documentation will be generated in the `doc-js/` folder.
 Install `jsdoc` with `npm install -g jsdoc` (or `npm install
 --save-dev jsdoc` locally).
 
-## Examples
-
-See the `ciaowasm_demo` bundle for some example applications.  Use
-`ciao-serve` to serve the files under that directory and execute the
-examples from a web browser.
-
 ## Caveats
 
  - Operations repending on blocking IO (like console interaction) are
