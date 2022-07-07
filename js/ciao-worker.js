@@ -10,6 +10,9 @@ var root_url;
 var f={};
 var stdout = "";
 var stderr = "";
+// Pending loads (status and msg id)
+var pending_load = false;
+var pending_load_id = undefined;
 
 var Module;
 var LZ4;
@@ -22,9 +25,24 @@ f.loadEng = function(url) {
   return true;
 }
 
+function monitor_deps(numdeps) {
+  if (numdeps == 0) {
+    if (pending_load_id !== undefined) { // send message
+      postMessage({id: pending_load_id, ret: true}); // use async
+      pending_load_id = undefined;
+    }
+    pending_load = false; // no pending loads
+  }
+}
+
 f.useBundle = function(bundle) {
-  // console.log('Using bundle ' + bundle + " ...");
+  postMessage({isLog: true, msg: `{loading bundle '${bundle}'}`});
   importScripts(root_url + "build/dist/" + bundle + ".bundle.js");
+  if (Module !== undefined) {
+    Module['monitorRunDependencies'] = monitor_deps;
+    pending_load = true; // at least one pending load
+    Ciao.preload_bundle(bundle);
+  }
   return true;
 }
 
@@ -105,6 +123,13 @@ this.onmessage = function(event) {
     }), (function(err) {
       stderr += err + "\n";
     }));
+    return;
+  case 'waitNoDeps': /* Wait until there are no pending loading dependencies (for useBundle) */
+    if (pending_load) {
+      pending_load_id = event.data.id; /* wait */
+    } else { /* answer immediately */
+      postMessage({id: event.data.id, ret: ret});
+    }
     return;
   default:
     ret = f[event.data.cmd].apply(undefined, event.data.args);

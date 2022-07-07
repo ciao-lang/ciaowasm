@@ -64,7 +64,11 @@ var Ciao = (function() {
     FS.createPreloadedFile(dir, base, srcurl, true, true); // rw access
     // TODO: only works in web workers, does not work in lpdoc example
     // FS.createLazyFile(dir, base, srcurl, true, true); // rw access
-  }
+  };
+
+  Ciao.preload_bundle = function(b) {
+    Ciao.bundle[b].preload();
+  };
 
   /* --------------------------------------------------------------------------- */
   /* Initialization */
@@ -132,7 +136,7 @@ var Ciao = (function() {
       FS = Module['FS'];
       // Preload bundle files (if needed)
       for (const b of Ciao.depends) {
-        Ciao.bundle[b].preload();
+        Ciao.preload_bundle(b);
       }
       var root_wksp = Ciao.bundle['core'].wksp;
       Ciao.preload_file(root_wksp, "build/bin/" + Ciao.bootfile); /* TODO: change wksp?

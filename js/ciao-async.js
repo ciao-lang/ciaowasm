@@ -159,6 +159,11 @@ class CiaoWorker {
     return this.#async_('useBundle', name);
   };
 
+  wait_no_deps() {
+    this.ensure_loadEng();
+    return this.#async_('waitNoDeps');
+  }
+
   /**
    * Get the Ciao root path.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
