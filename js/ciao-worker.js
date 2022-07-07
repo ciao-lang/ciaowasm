@@ -91,10 +91,6 @@ f.readStderr = function() {
   return err;
 }
 
-f.query = function(template, goal) {
-  return Ciao.query(template, goal);
-}
-
 f.query_one_begin = function(template, goal) {
   return Ciao.query_one_begin(template, goal);
 }

@@ -192,17 +192,6 @@ class CiaoWorker {
   };
 
   /**
-   * Run the query passed as a parameter and obtain all solutions.
-   * @param {string} template - Template term for solutions (null if same as goal).
-   * @param {string} goal - Query to be executed.
-   * @return {CiaoPromiseProxy} - Result of the call to the worker.
-   */
-  query(template, goal) {
-    this.ensure_boot();
-    return this.#async_('query', template, goal);
-  };
-
-  /**
    * Begins the query passed as parameter and obtains one solution. The
    * decision tree stays awake and waits for user's input.
    * @param {string} template - Template term for solutions (null if same as goal).

@@ -13,7 +13,6 @@
 :- use_module(library(read), [read_term/3]).
 :- use_module(library(streams)).
 :- use_module(library(write)).
-:- use_module(library(aggregates)).
 :- use_module(library(lists), [member/2]).
 :- use_module(engine(system_info), [get_arch/1]).
 :- use_module(engine(hiord_rt), [call/1]).
@@ -25,14 +24,6 @@ main :-
     ( get_arch(wasm32) -> true
     ; display(user_error, 'Please do not call me directly! I am the interface for ciao-eng.js\n\n')
     ).
-
-:- export(query_fs/0).
-% Execute a query and get all solutions
-% (input and output from reserved files on file system)
-query_fs :-
-    read_query(Query),
-    query_all(Query, Sols),
-    write_sols(Sols).
 
 :- export(query_one_fs/0).
 % Execute a query and get solutions on backtracking
@@ -70,12 +61,6 @@ write_sols(Sols) :-
 write_sol(malformed, Out) :- display(Out, 'malformed'), nl(Out).
 write_sol(success(X), Out) :- display(Out, 'success('), writeq(Out, X), display(Out, ')'), nl(Out).
 write_sol(exception(X), Out) :- display(Out, 'exception('), writeq(Out, X), display(Out, ')'), nl(Out).
-
-query_all(tmpl(Template, Goal), Sols) :-
-    % TODO: do not do findall; allow blocking execution
-    findall(Sol, query_(Goal,Template,Sol), Sols).
-query_all(malformed, Sols) :-
-    Sols = [malformed].
 
 query_one(tmpl(Template, Goal), Sol) :-
     query_(Goal,Template,Sol).

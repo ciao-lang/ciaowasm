@@ -155,25 +155,7 @@ var Ciao = (function() {
 
   Ciao.bootfile='ciaowasm';
 
-  /* See ciaowasm:query_fs/0 */
-  Ciao.query = function(template, goal) {
-    var query;
-    if (template === null) {
-      query = 'notmpl(('+goal+')).';
-    } else {
-      query = 'tmpl(('+template+'),('+goal+')).';
-    }
-    FS.writeFile('/.ciaowasm-in.pl', query, {encoding: 'utf8'});
-    startTimer();
-    Ciao.run("ciaowasm:query_fs");
-    var time = checkTimer();
-    var out = FS.readFile('/.ciaowasm-out.pl', { encoding: 'utf8' })
-    /* Cannonical output ensure that we do not have line breaks inside a solution */ 
-    return { sols: out.trim().split("\n"), time: time };
-  };
-
   /* Begin new query. See ciaowasm:query_one_fs/0 */
-  /* TODO: factorize code with Ciao.query, etc. */
   Ciao.query_one_begin = function(template, goal) {
     var query;
     if (template === null) {
