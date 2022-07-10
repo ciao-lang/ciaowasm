@@ -10,6 +10,7 @@
 :- doc(bug, "Using FS for interaction, do it better?").
 
 :- use_module(library(compiler)). % allow use_module
+:- use_module(library(toplevel/prettysols), [dump_solution/2, display_solution/1]).
 :- use_module(library(read), [read_term/3]).
 :- use_module(library(streams)).
 :- use_module(library(write)).
@@ -31,45 +32,44 @@ main :-
 query_one_fs :-
     read_query(Query),
     query_one(Query, Sol),
-    write_sols([Sol]).
+    write_sol(Sol).
 
 read_query(Query) :-
-    open('/.ciaowasm-in.pl', read, In),
-    Opts = [variable_names(Vs)],
+    open('/.q-i', read, In),
+    Opts = [dictionary(Dict)/*, variable_names(VarNames)*/],
     catch(read_term(In, Query0, Opts), _E, Err=yes),
     close(In),
     ( Err == yes ->
         Query = malformed
-    ; Query0 = notmpl(Goal) -> % No template, use variable names
-        Query = tmpl(Vs, Goal)
-    ; Query0 = tmpl(_,_) ->
-        Query = Query0
+    ; Query0 = q(Goal) ->
+        Query = q(Dict, Goal)
     ; Query = malformed
     ).
 
-% Write one solution per line
-write_sols(Sols) :-
-    open('/.ciaowasm-out.pl', write, Out),
-    ( member(Sol, Sols),
-      write_sol(Sol, Out),
-      fail
-    ; true
-    ),
+% TODO: enable faster parsing, avoid operator issues
+write_sol(malformed) :- write_qc(malformed), write_qa('').
+write_sol(success(X)) :- write_qc(success), write_qa_pretty(X).
+write_sol(exception(X)) :- write_qc(exception), write_qa(X).
+
+write_qc(X) :- open('/.q-c', write, Out), display(Out, X), close(Out).
+
+write_qa(X) :- open('/.q-a', write, Out), writeq(Out, X), close(Out).
+
+write_qa_pretty(Sol) :-
+    open('/.q-a', write, Out),
+    current_output(CurrOut), set_output(Out),
+    ( Sol = [] -> true ; display_solution(Sol) ),
+    set_output(CurrOut),
     close(Out).
 
-% TODO: enable faster parsing, avoid operator issues
-write_sol(malformed, Out) :- display(Out, 'malformed'), nl(Out).
-write_sol(success(X), Out) :- display(Out, 'success('), writeq(Out, X), display(Out, ')'), nl(Out).
-write_sol(exception(X), Out) :- display(Out, 'exception('), writeq(Out, X), display(Out, ')'), nl(Out).
-
-query_one(tmpl(Template, Goal), Sol) :-
-    query_(Goal,Template,Sol).
+query_one(q(Dict, Goal), Sol) :-
+    query_(Goal, Dict, Sol).
 query_one(malformed, Sol) :-
     Sol = malformed.
 
 % Execute `Goal` and get one solution (`success(Template)` or `exception(_)`)
-query_(Goal, Template, Sol) :-
-    catch(port_query_(Goal, Template, Sol), E, Sol=exception(E)), fake_flush.
+query_(Goal, Dict, Sol) :-
+    catch(port_query_(Goal, Dict, Sol), E, Sol=exception(E)), fake_flush.
 query_(_, _, _) :- fake_flush, fail.
 
 % TODO: horrible hack: WASM Module.print and Module.printErr do not seem to send output until nl is found, any way to fix it?
@@ -77,4 +77,6 @@ fake_flush :-
     display(user_output, '\n$$$fake_flush$$$\n'),
     display(user_error, '\n$$$fake_flush$$$\n').
 
-port_query_(Goal, Template, success(Template)) :- call(Goal).
+port_query_(Goal, Dict, success(Sol)) :-
+    call(Goal),
+    dump_solution(Dict, Sol).

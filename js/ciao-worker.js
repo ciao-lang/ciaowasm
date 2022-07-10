@@ -91,8 +91,8 @@ f.readStderr = function() {
   return err;
 }
 
-f.query_one_begin = function(template, goal) {
-  return Ciao.query_one_begin(template, goal);
+f.query_one_begin = function(goal) {
+  return Ciao.query_one_begin(goal);
 }
 
 f.query_ok = function() {

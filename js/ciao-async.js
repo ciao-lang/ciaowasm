@@ -194,13 +194,12 @@ class CiaoWorker {
   /**
    * Begins the query passed as parameter and obtains one solution. The
    * decision tree stays awake and waits for user's input.
-   * @param {string} template - Template term for solutions (null if same as goal).
    * @param {string} goal - Query to be launched.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  query_one_begin(template, goal) {
+  query_one_begin(goal) {
     this.ensure_boot();
-    return this.#async_('query_one_begin', template, goal);
+    return this.#async_('query_one_begin', goal);
   }
 
   /**

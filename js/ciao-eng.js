@@ -156,20 +156,16 @@ var Ciao = (function() {
   Ciao.bootfile='ciaowasm';
 
   /* Begin new query. See ciaowasm:query_one_fs/0 */
-  Ciao.query_one_begin = function(template, goal) {
+  Ciao.query_one_begin = function(goal) {
     var query;
-    if (template === null) {
-      query = 'notmpl(('+goal+')).';
-    } else {
-      query = 'tmpl(('+template+'),('+goal+')).';
-    }
-    FS.writeFile('/.ciaowasm-in.pl', query, {encoding: 'utf8'});
+    query = 'q(('+goal+')).';
+    FS.writeFile('/.q-i', query, {encoding: 'utf8'});
     startTimer();
     Ciao.query_begin("ciaowasm:query_one_fs");
     var time = checkTimer();
-    var out = FS.readFile('/.ciaowasm-out.pl', { encoding: 'utf8' })
-    /* Cannonical output ensure that we do not have line breaks inside a solution */ 
-    return { sols: out.trim().split("\n"), time: time };
+    var cont = FS.readFile('/.q-c', { encoding: 'utf8' });
+    var arg = FS.readFile('/.q-a', { encoding: 'utf8' });
+    return { cont: cont, arg: arg, time: time };
   };
 
   /* Obtain next solution */
@@ -177,9 +173,9 @@ var Ciao = (function() {
     startTimer();
     Ciao.query_next();
     var time = checkTimer();
-    var out = FS.readFile('/.ciaowasm-out.pl', { encoding: 'utf8' })
-    /* Cannonical output ensure that we do not have line breaks inside a solution */ 
-    return { sols: out.trim().split("\n"), time: time };
+    var cont = FS.readFile('/.q-c', { encoding: 'utf8' });
+    var arg = FS.readFile('/.q-a', { encoding: 'utf8' });
+    return { cont: cont, arg: arg, time: time };
   };
 
   /* --------------------------------------------------------------------------- */
