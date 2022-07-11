@@ -8,44 +8,110 @@
 :- doc(bug, "Allow creation of executables without main/{0,1}?").
 :- doc(bug, "Allow suspended calls").
 :- doc(bug, "Using FS for interaction, do it better?").
+:- doc(bug, "Lower-level (not toplevel) interaction").
 
-:- use_module(library(compiler)). % allow use_module
-:- use_module(library(toplevel/prettysols), [dump_solution/2, display_solution/1]).
 :- use_module(library(read), [read_term/3]).
 :- use_module(library(streams)).
 :- use_module(library(write)).
-:- use_module(library(lists), [member/2]).
-:- use_module(engine(system_info), [get_arch/1]).
-:- use_module(engine(hiord_rt), [call/1]).
 %
 :- use_module(library(timeout), [call_with_time_limit/3]). % TODO: Currently not working, just add here to avoid a dynlink failure, e.g., from unittests
+
+% ---------------------------------------------------------------------------
+
+:- use_module(engine(system_info), [get_arch/1]).
 
 :- export(main/0).
 main :-
     ( get_arch(wasm32) -> true
     ; display(user_error, 'Please do not call me directly! I am the interface for ciao-eng.js\n\n')
-    ).
+    ),
+    query_init.
 
 :- export(query_one_fs/0).
 % Execute a query and get solutions on backtracking
 % (input and output from reserved files on file system)
 query_one_fs :-
-    read_query(Query),
-    query_one(Query, Sol),
+    get_query_fs(Query),
+    ( Query = malformed -> write_sol(malformed)
+    ; query_call_fs(Query)
+    ).
+
+% ---------------------------------------------------------------------------
+% Execute queries
+
+% :- compilation_fact(no_toplevel). % TODO: raw queries without whole toplevel dependencies, make it optional
+
+:- if(defined(no_toplevel)).
+:- use_module(library(compiler)). % allow use_module
+:- use_module(engine(hiord_rt), [call/1]).
+:- else.
+:- use_module(engine(internals), ['$empty_gcdef_bin'/0]).
+% TODO: avoid import, merge
+:- import(toplevel, [shell_init/1, get_shell_module/1, query_call/4]).
+:- endif.
+:- use_module(library(toplevel/prettysols), [dump_solution/2, display_solution/1]).
+
+:- if(defined(no_toplevel)).
+% (raw queries, no toplevel)
+
+query_init.
+
+query_call_fs(q(Dict, VarNames, Goal)) :-
+    query_(Goal, Dict, VarNames, Sol),
     write_sol(Sol).
 
-read_query(Query) :-
+% Execute `Goal` and get one solution (`success(Template)` or `exception(_)`)
+query_(Goal, Dict, Sol) :-
+    catch(port_query_(Goal, Dict, Sol), E, Sol=exception(E)), fake_flush.
+query_(_, _, _) :- fake_flush, fail.
+
+port_query_(Goal, Dict, success(Sol)) :-
+    call(Goal),
+    dump_solution(Dict, Sol). % TODO: lower-level
+
+:- else.
+% (full toplevel)
+
+query_init :- toplevel:shell_init(['-q']). % TODO: make it customizable
+
+% TODO: merge with toplevel:shell_query/2 and toplevel:valid_solution/3
+query_call_fs(q(Dict, VarNames, Goal)) :-
+    % TODO: unsafe? what if some thread is still running?
+    '$empty_gcdef_bin', % Really get rid of abolished predicates
+    toplevel:get_shell_module(ShMod),
+    toplevel:query_call(Goal, ShMod, VarNames, Result),
+    fake_flush,
+    ( Result = yes(_) -> dump_solution(Dict, Sol), write_sol(success(Sol))
+    ; Result = exception(_) -> write_sol(Result)
+    ; Result = no -> fail
+    ).
+
+:- endif.
+
+% ---------------------------------------------------------------------------
+
+% TODO: horrible hack: WASM Module.print and Module.printErr do not seem to send output until nl is found, any way to fix it?
+fake_flush :-
+    display(user_output, '\n$$$fake_flush$$$\n'),
+    display(user_error, '\n$$$fake_flush$$$\n').
+
+% ---------------------------------------------------------------------------
+% FS interaction (rather than stdin/stdout/stderr)
+
+% Get a query
+get_query_fs(Query) :-
     open('/.q-i', read, In),
-    Opts = [dictionary(Dict)/*, variable_names(VarNames)*/],
+    Opts = [dictionary(Dict), variable_names(VarNames)],
     catch(read_term(In, Query0, Opts), _E, Err=yes),
     close(In),
     ( Err == yes ->
         Query = malformed
     ; Query0 = q(Goal) ->
-        Query = q(Dict, Goal)
+        Query = q(Dict, VarNames, Goal)
     ; Query = malformed
     ).
 
+% Write solutions
 % TODO: enable faster parsing, avoid operator issues
 write_sol(malformed) :- write_qc(malformed), write_qa('').
 write_sol(success(X)) :- write_qc(success), write_qa_pretty(X).
@@ -62,21 +128,3 @@ write_qa_pretty(Sol) :-
     set_output(CurrOut),
     close(Out).
 
-query_one(q(Dict, Goal), Sol) :-
-    query_(Goal, Dict, Sol).
-query_one(malformed, Sol) :-
-    Sol = malformed.
-
-% Execute `Goal` and get one solution (`success(Template)` or `exception(_)`)
-query_(Goal, Dict, Sol) :-
-    catch(port_query_(Goal, Dict, Sol), E, Sol=exception(E)), fake_flush.
-query_(_, _, _) :- fake_flush, fail.
-
-% TODO: horrible hack: WASM Module.print and Module.printErr do not seem to send output until nl is found, any way to fix it?
-fake_flush :-
-    display(user_output, '\n$$$fake_flush$$$\n'),
-    display(user_error, '\n$$$fake_flush$$$\n').
-
-port_query_(Goal, Dict, success(Sol)) :-
-    call(Goal),
-    dump_solution(Dict, Sol).
