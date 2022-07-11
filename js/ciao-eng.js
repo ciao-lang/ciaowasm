@@ -33,6 +33,8 @@ var Ciao = (function() {
     Ciao.run = Module.cwrap('ciaowasm_run', 'number', ['string']);
     Ciao.query_begin = Module.cwrap('ciaowasm_query_begin', 'number', ['string']);
     Ciao.query_ok = Module.cwrap('ciaowasm_query_ok', 'number', []);
+    Ciao.query_suspended = Module.cwrap('ciaowasm_query_suspended', 'number', []);
+    Ciao.query_resume = Module.cwrap('ciaowasm_query_resume', 'number', []);
     Ciao.query_next = Module.cwrap('ciaowasm_query_next', 'number', []);
     Ciao.query_end = Module.cwrap('ciaowasm_query_end', 'number', []);
   };
@@ -162,21 +164,36 @@ var Ciao = (function() {
     FS.writeFile('/.q-i', query, {encoding: 'utf8'});
     startTimer();
     Ciao.query_begin("ciaowasm:query_one_fs");
-    var time = checkTimer();
-    var cont = FS.readFile('/.q-c', { encoding: 'utf8' });
-    var arg = FS.readFile('/.q-a', { encoding: 'utf8' });
-    return { cont: cont, arg: arg, time: time };
+    return query_result();
   };
 
   /* Obtain next solution */
   Ciao.query_one_next = function() {
     startTimer();
     Ciao.query_next();
-    var time = checkTimer();
-    var cont = FS.readFile('/.q-c', { encoding: 'utf8' });
-    var arg = FS.readFile('/.q-a', { encoding: 'utf8' });
-    return { cont: cont, arg: arg, time: time };
+    return query_result();
   };
+
+  /* Resume query */
+  Ciao.query_one_resume = function() {
+    Ciao.query_resume();
+    return query_result();
+  };
+
+  function query_result() {
+    var time = checkTimer();
+    if (Ciao.query_ok()) {
+      if (Ciao.query_suspended()) {
+        return { cont: 'suspended', arg: '', time: time };
+      } else {
+        cont = FS.readFile('/.q-c', { encoding: 'utf8' });
+        arg = FS.readFile('/.q-a', { encoding: 'utf8' });
+        return { cont: cont, arg: arg, time: time };
+      }
+    } else {
+      return { cont: 'failed', arg: '', time: time };
+    }
+  }
 
   /* --------------------------------------------------------------------------- */
 

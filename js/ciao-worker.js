@@ -95,8 +95,8 @@ f.query_one_begin = function(goal) {
   return Ciao.query_one_begin(goal);
 }
 
-f.query_ok = function() {
-  return Ciao.query_ok();
+f.query_one_resume = function() {
+  return Ciao.query_one_resume();
 }
 
 f.query_one_next = function() {

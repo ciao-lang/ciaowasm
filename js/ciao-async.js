@@ -195,28 +195,38 @@ class CiaoWorker {
    * Begins the query passed as parameter and obtains one solution. The
    * decision tree stays awake and waits for user's input.
    * @param {string} goal - Query to be launched.
-   * @return {CiaoPromiseProxy} - Result of the call to the worker.
+   * @return {Object} - Query result
    */
-  query_one_begin(goal) {
+  async query_one_begin(goal) {
     this.ensure_boot();
-    return this.#async_('query_one_begin', goal);
+    let q_out = await this.#query_one_begin_(goal);
+    return await this.#query_complete(q_out);
   }
-
-  /**
-   * Tells whether the query has started correctly and has more solutions
-   * or not.
-   * @return {CiaoPromiseProxy} - Result of the call to the worker.
-   */
-  query_ok() {
-    return this.#async_('query_ok');
+  #query_one_begin_(goal) {
+    return this.#async_('query_one_begin', goal);
   }
 
   /**
    * Obtain the next solution for the query previously launched.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  query_one_next() {
+  async query_one_next() {
+    let q_out = await this.#query_one_next_();
+    return await this.#query_complete(q_out);
+  }
+  #query_one_next_() {
     return this.#async_('query_one_next');
+  }
+
+  /* Resume query until completed (not suspended) */
+  async #query_complete(q_out) {
+    while (q_out.cont === 'suspended') {
+      q_out = await this.#query_resume(); // (await here allows concurrency)
+    }
+    return q_out;
+  }
+  #query_resume() {
+    return this.#async_('query_one_resume');
   }
 
   /**

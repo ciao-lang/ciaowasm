@@ -57,6 +57,17 @@ int EMSCRIPTEN_KEEPALIVE ciaowasm_query_ok(void) {
   return ciao_query_ok(query);
 }
 
+/* Check if current query is suspended */
+int EMSCRIPTEN_KEEPALIVE ciaowasm_query_suspended(void) {
+  return ciao_query_suspended(query);
+}
+
+/* Resume a suspended query */
+int EMSCRIPTEN_KEEPALIVE ciaowasm_query_resume(void) {
+  ciao_query_resume(query);
+  return TRUE;
+}
+
 /* Ask for the next solution */
 int EMSCRIPTEN_KEEPALIVE ciaowasm_query_next(void) {
   return ciao_query_next(query);
