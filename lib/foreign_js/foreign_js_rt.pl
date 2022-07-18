@@ -16,6 +16,7 @@
 
 :- use_module(library(stream_utils), [write_string/2, file_to_string/2]).
 :- use_module(library(pillow/json), [json_to_string/2, string_to_json/2]).
+:- use_module(library(streams)).
 :- use_module(engine(internals), ['$yield'/0]).
 :- use_module(library(lists), [member/2, append/3]).
 
@@ -81,7 +82,8 @@ emit_arg(X) --> emit_str(X).
 
 emit_str(Str, S, S0) :- append(Str, S0, S).
 
-% Call foreign JS 
+% Call foreign JS
+:- export(js_call/1).
 js_call(Goal) :-
     functor(Goal, F, A),
     send_js_def(F, A),
