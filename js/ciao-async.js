@@ -218,9 +218,14 @@ class CiaoWorker {
     return this.#async_('query_one_next');
   }
 
-  /* Resume query until completed (not suspended) */
+  /* Resume query until completed (not suspended). Process jscmd buffer */
   async #query_complete(q_out) {
-    while (q_out.cont === 'suspended') {
+    while (true) {
+      let cmds = await this.recv_jscmds();
+      for (let cmd of cmds) {
+        await jscmd_run(this, cmd);
+      }
+      if (q_out.cont !== 'suspended') break;
       q_out = await this.#query_resume(); // (await here allows concurrency)
     }
     return q_out;
@@ -262,16 +267,32 @@ class CiaoWorker {
    * Capture the output of the most recent query/ies.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  readStdout() {
-    return this.#async_('readStdout');
+  read_stdout() {
+    return this.#async_('read_stdout');
   };
 
   /**
    * Capture the standard error of the most recent query/ies.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  readStderr() {
-    return this.#async_('readStderr');
+  read_stderr() {
+    return this.#async_('read_stderr');
+  };
+
+  /**
+   * Receive all jscmd from the JS command buffer
+   * @return {CiaoPromiseProxy} - Result of the call to the worker.
+   */
+  recv_jscmds() {
+    return this.#async_('recv_jscmds');
+  };
+  /**
+   * Send output of the latest executed jscmd
+   * @param x - value (JSON)
+   * @return {CiaoPromiseProxy} - Result of the call to the worker.
+   */
+  send_jsret(x) {
+    return this.#async_('send_jsret', x);
   };
 
   /**
@@ -281,5 +302,43 @@ class CiaoWorker {
    */
   terminate() {
     return this.w.terminate();
+  }
+}
+
+/* --------------------------------------------------------------------------- */
+/* JS command buffer */
+
+// JS command buffer is a JSON encoded list of commands.
+//  
+// Instructions are objects such that:
+//
+//   i.cmd=="def": assigns code i.code for function i.name at jscmd_f
+//   i.cmd=="call": call function i.name with arguments i.args
+//   i.cmd=="acall": await call function i.name with arguments i.args
+
+/* JS function table (global and shared) */
+var jscmd_f = {};
+
+/* Execute jscmd */
+async function jscmd_run(w, jscmd) {
+  let ret;
+  switch(jscmd.cmd) {
+  case 'def': /* define function */
+    jscmd_f[jscmd.name] = Function('"use strict";return (' + jscmd.code + ')')();
+    break;
+  case 'call':
+    jscmd.args.unshift(w); // worker as 1st argument
+    ret = jscmd_f[jscmd.name].apply(undefined, jscmd.args);
+    await w.send_jsret(ret);
+    //jscmd_send_output(w, ret);
+    break;
+  case 'acall':
+    jscmd.args.unshift(w); // worker as 1st argument
+    ret = await jscmd_f[jscmd.name].apply(undefined, jscmd.args);
+    await w.send_jsret(ret);
+    //jscmd_send_output(w, ret);
+    break;
+  default:
+    console.log('error: unknown jscmd: ' + jscmd);
   }
 }

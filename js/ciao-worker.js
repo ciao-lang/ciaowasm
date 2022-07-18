@@ -79,16 +79,44 @@ f.readFile = function(a) {
   }
 }
 
-f.readStdout = function() {
+f.read_stdout = function() {
   var out = stdout.replaceAll("\n$$$fake_flush$$$\n",""); /* TODO: see ciaowasm.pl for details about this horrible workaround */
   stdout = "";
   return out;
 }
 
-f.readStderr = function() {
+f.read_stderr = function() {
   var err = stderr.replaceAll("\n$$$fake_flush$$$\n",""); /* TODO: see ciaowasm.pl for details about this horrible workaround */
   stderr = "";
   return err;
+}
+
+// TODO: queue and send only 1?
+f.recv_jscmds = function() {
+  let str;
+  let FS = Ciao.getFS();
+  try {
+    str = FS.readFile('/.j-c', {encoding: 'utf8'});
+    FS.unlink('/.j-c');
+  } catch(err) {
+    return [];
+  }
+  if (str === '') return [];
+  let cmds = [];
+  let lines = str.split("\n");
+  for (let line of lines) {
+    cmds.push(JSON.parse(line));
+  }
+  return cmds;
+}
+f.send_jsret = function(x) {
+  if (x === undefined) return true;
+  try {
+    let str = JSON.stringify(x);
+    return Ciao.getFS().writeFile('/.j-o', str, {encoding: 'utf8'});
+  } catch(err) {
+    return null;
+  }
 }
 
 f.query_one_begin = function(goal) {
