@@ -159,21 +159,9 @@ disttmpdir := ~bundle_path(core, builddir, 'sitetmp'). % TODO: customize!
 bundle_dist_file_list(Bundle, Kind, RelPath) :-
     bundle_workspace(Bundle, Wksp),
     bundle_path(Bundle, '.', BaseDir),
-    find_precomp_file(BaseDir, File),
-    ( check_nodist_file(BaseDir, File) -> fail % do not distribute
-    ; path_splitext(File, _, Ext),
-      check_dist_ext(Ext, Kind)
-    ),
+    find_precomp_file(Kind, BaseDir, File),
+    % workspace relative path
     path_get_relative(Wksp, File, RelPath).
-
-% TODO: ad-hoc!
-check_nodist_file(BaseDir, File) :-
-    path_get_relative(BaseDir, File, RelFile),
-    ( atom_concat('Manifest/', _, RelFile) -> true
-    ; atom_concat('doc/', _, RelFile) -> true
-    ; atom_concat('cmds/', _, RelFile) -> true
-    ; fail
-    ).
 
 check_dist_ext('.pl', src).
 check_dist_ext('.po', src).
@@ -191,11 +179,15 @@ check_dist_ext('.svg', assets_http).
 :- use_module(library(streams)).
 
 % TODO: move or integrate into source_tree.pl library?
-find_precomp_file(BaseDir, File) :-
+find_precomp_file(Kind, BaseDir, File) :-
     current_file_find(distributable_precomp(bin), BaseDir, File0),
-    ( File = File0 % the file
+    ( check_nodist_file(BaseDir, File0) -> fail % do not distribute
+    ; path_splitext(File0, Base, Ext),
+      check_dist_ext(Ext, Kind)
+    ),
+    ( File = File0 % the file % TODO: pack .pl for modules in a different file
     ; % if File may be a module, try .po or .itf (po_filename/2 and itf_filename/2 works with CIAOCCACHE)
-      ( atom_concat(Base, '.pl', File0) -> % maybe a module, try .po and .itf
+      ( Ext = '.pl' -> % maybe a module, try .po and .itf
         ( po_filename(Base, PO), file_exists(PO), File = PO
         ; itf_filename(Base, Itf), file_exists(Itf), File = Itf
         )
@@ -203,8 +195,17 @@ find_precomp_file(BaseDir, File) :-
       )
     ).
 
-srcs(Bundle, RelPath) :- !,
-    % TODO: too many files! use createLazy if available?
+% TODO: ad-hoc! customize
+check_nodist_file(BaseDir, File) :-
+    path_get_relative(BaseDir, File, RelFile),
+    ( atom_concat('Manifest/', _, RelFile) -> true
+    ; atom_concat('doc/', _, RelFile) -> true
+    ; atom_concat('cmds/', _, RelFile) -> true
+    ; atom_concat('src_builder/', _, RelFile) -> true
+    ; fail
+    ).
+
+srcs(Bundle, RelPath) :-
     bundle_dist_file_list(Bundle, src, RelPath).
 
 assets_http(Bundle, RelPath) :-
