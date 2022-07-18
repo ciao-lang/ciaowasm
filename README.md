@@ -29,7 +29,7 @@ Documentation of JavaScript bindings is auto-generated using
 jsdoc -c Manifest/jsdoc-conf.json
 ```
 
-The HTML documentation will be generated in the `doc-js/` folder.
+The HTML documentation will be generated in the `doc/js/` folder.
 Install `jsdoc` with `npm install -g jsdoc` (or `npm install
 --save-dev jsdoc` locally).
 
