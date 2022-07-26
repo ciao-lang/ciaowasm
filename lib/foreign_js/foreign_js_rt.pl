@@ -29,7 +29,7 @@
 send_jscmd(Cmd) :-
     json_to_string(Cmd, Str),
     open('/.j-c', append, Out),
-    write_string(Out, Str),
+    write_string(Out, Str), nl(Out),
     close(Out),
     '$yield'. % (allow context switch to JS)
 

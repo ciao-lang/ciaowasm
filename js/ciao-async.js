@@ -306,6 +306,45 @@ class CiaoWorker {
 }
 
 /* --------------------------------------------------------------------------- */
+/* JS reference table */
+
+// This table is used to assign unique indices to JS objects passed to
+// a CiaoWorker.
+//
+// TODO:
+//  - indices are reused but the heap table is not compacted
+//  - use 'externref' [1] to simplify gluecode? (does it work from
+//    workers?)
+//  - foreign GC needed to do jsref_free automatically
+//
+// [1] https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md
+
+/* The index->obj table (global and shared) */
+var jsref_heap = []; // index->obj table
+var jsref_freeidx = []; // free indices in the heap table (holes)
+
+// Allocate a slot for `obj` and return its index
+function jsref_alloc(obj) {
+  if (jsref_freeidx.length != 0) { // reuse a free idx
+    let idx = jsref_freeidx.pop();
+    jsref_heap[idx] = obj;
+    return idx;
+  } else { // alloc a new idx
+    return jsref_heap.push(obj) - 1; // index
+  }
+}
+
+// Free the slot `idx`
+function jsref_free(idx) {
+  jsref_freeidx.push(idx); // add to the free pool
+  jsref_heap[idx] = null; // remove
+}
+
+function jsref_obj(idx) {
+  return jsref_heap[idx];
+}
+
+/* --------------------------------------------------------------------------- */
 /* JS command buffer */
 
 // JS command buffer is a JSON encoded list of commands.
@@ -315,6 +354,9 @@ class CiaoWorker {
 //   i.cmd=="def": assigns code i.code for function i.name at jscmd_f
 //   i.cmd=="call": call function i.name with arguments i.args
 //   i.cmd=="acall": await call function i.name with arguments i.args
+
+// TODO: simplify this part using reference types
+//   https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md
 
 /* JS function table (global and shared) */
 var jscmd_f = {};

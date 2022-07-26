@@ -105,6 +105,7 @@ f.recv_jscmds = function() {
   let cmds = [];
   let lines = str.split("\n");
   for (let line of lines) {
+    if (line === '') continue;
     cmds.push(JSON.parse(line));
   }
   return cmds;
