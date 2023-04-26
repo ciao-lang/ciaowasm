@@ -21,7 +21,3 @@ fi
 ciao build ciaowasm
 ciao build --grade=wasm ciaowasm
 ciao install --grade=wasm -x ciaowasm
-# 
-# Build and install demo
-ciao build --grade=wasm ciaowasm_demo
-ciao install --grade=wasm -x ciaowasm_demo
