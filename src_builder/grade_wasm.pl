@@ -120,7 +120,8 @@ prim(eng(_EngMainSpec, EngOpts), Bundle, install_wasm) :-
     member(cross('EMSCRIPTEN', wasm32), EngOpts), % (Emscripten)
     !,
     EngDef = eng_def(Bundle, _EngMainSpec, EngOpts),
-    dist_engine(EngDef).
+    dist_engine(EngDef),
+    site_copy_files. % TODO: move elsewhere?
 prim(cmd(Path), Bundle, Cmd) :- atom(Path), !,
     % TODO: share
     path_split(Path, _, Name0),
@@ -348,7 +349,7 @@ remove_dir_if_exists(X) :-
 
 rel_bin_dir := 'build/bin'.
 
-% Put together ciao-eng.js and the ASMJS compiled engine
+% Put together ciao-eng.js and the WASM compiled engine
 dist_engine(Eng) :-
     ObjDir = ~eng_path(objdir, Eng),
     EngName = ~eng_mainmod(Eng),
@@ -367,10 +368,13 @@ dist_engine(Eng) :-
 %       % Copy the engine .js.mem
 %       copy_file(~path_concat(ObjDir, EngJsMem), ~path_concat(DistBinDir, EngJsMem), [overwrite]),
     % Copy the engine .wasm
-    copy_file(~path_concat(ObjDir, EngWasm), ~path_concat(DistBinDir, EngWasm), [overwrite]),
-    % Copy other .js files
-    copy_file(~path_concat(~bundle_path(ciaowasm, 'js'), 'ciao-async.js'), ~path_concat(DistBinDir, 'ciao-async.js'), [overwrite]),
-    copy_file(~path_concat(~bundle_path(ciaowasm, 'js'), 'ciao-worker.js'), ~path_concat(DistBinDir, 'ciao-worker.js'), [overwrite]).
+    copy_file(~path_concat(ObjDir, EngWasm), ~path_concat(DistBinDir, EngWasm), [overwrite]).
+
+site_copy_files :-
+    % Copy JS client
+    SiteJs = ~path_concat(~site_root_dir, 'js'),
+    mkpath(SiteJs),
+    copy_file(~bundle_path(ciaowasm, 'js/ciao-prolog.js'), ~path_concat(SiteJs, 'ciao-prolog.js'), [overwrite]).
 
 % ---------------------------------------------------------------------------
 

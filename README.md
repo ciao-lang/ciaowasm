@@ -1,16 +1,19 @@
-# CiaoWasm - Ciao compiled to WebAssembly
+# Ciao Prolog from JavaScript
 
 This bundle provides a Ciao engine compiled to WebAssembly
-[Emscripten](https://emscripten.org/docs/getting_started/downloads.html).
+[Emscripten](https://emscripten.org/docs/getting_started/downloads.html)
+and a JavsScript interface.
 
-It also provides:
+It provides:
 
- - The `wasm` build grade (see `src_builder/`), necessary to pack and
+ - A Ciao **engine** variant targeting WebAssembly.
+
+ - The `wasm` **build grade** (see `src_builder/`), necessary to pack and
    distribute bundles for this backend.
 
- - A **high-level JS client** to the Ciao engine, which is able to run
-   queries and collect solutions. See `ciaowasm.pl` for internal
-   details.
+ - A **high-level JS client** (`ciao-prolog.js`) to the Ciao engine,
+   which is able to run queries and collect solutions. See
+   `ciaowasm.pl` for internal details.
 
 ## Build
 

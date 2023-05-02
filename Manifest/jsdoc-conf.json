@@ -2,7 +2,7 @@
   "plugins": ["plugins/markdown"],
   "recurseDepth": 10,
   "source": {
-    "include": [ "js/ciao-async.js" ],
+    "include": [ "js/ciao-prolog.js" ],
     "includePattern": ".+\\.js(doc|x)?$",
     "excludePattern": "(^|\\/|\\\\)_"
   },
