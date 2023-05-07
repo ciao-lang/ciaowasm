@@ -1,7 +1,7 @@
 /*
  *  main-ciaowasm.c
  *
- *  Main file for ciaoengwasm.pl (called from ciao-eng.js)
+ *  Main file for ciaoengwasm.pl (called from ciao-prolog.js)
  *
  *  Copyright (C) 2016-2022 Jose F. Morales
  */

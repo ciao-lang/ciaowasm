@@ -1,6 +1,6 @@
 :- module(ciaowasm, [], [assertions, doccomments]).
 
-%! \title Support predicates for ciao-eng.js
+%! \title Support predicates for ciao-prolog.js
 %
 %  \module This defines a predicates to executes queries and returns
 %  solutions using a minimalistic text-based interface.
@@ -23,7 +23,7 @@
 :- export(main/0).
 main :-
     ( get_arch(wasm32) -> true
-    ; display(user_error, 'Please do not call me directly! I am the interface for ciao-eng.js\n\n')
+    ; display(user_error, 'Please do not call me directly! Use ciao-prolog.js\n\n')
     ),
     query_init.
 

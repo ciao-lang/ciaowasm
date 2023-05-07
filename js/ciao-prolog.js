@@ -71,7 +71,7 @@ class CiaoPromiseProxy {
  * Function that contains the Worker code (do not call it directly)
  */
 
-// TODO: move most of it into ciao-eng.js
+// TODO: make Web Worker optional
 function ciao_worker_fun() {
   var root_url;
   var f={};
@@ -79,44 +79,239 @@ function ciao_worker_fun() {
   var stderr = "";
   // Pending loads (status and msg id)
   var pending_load = false;
-  var pending_load_id = undefined;
+  var pending_load_hook = undefined;
 
-  var Module;
-  var LZ4;
+  var Ciao = (function() {
+    var EMCiao = {}; // Emscripten module for CIAOENGINE
+    var FS; // Emscripten FS
 
-  f.loadEng = function(url) {
+    var prev_time = null;
+    function now() { return (new Date()).getTime(); }
+    function startTimer() { prev_time = now(); }
+    function checkTimer() { return (now() - prev_time); } /* milliseconds */
+
+    var Ciao = {};
+    Ciao.stats = {};   // Statistics
+    Ciao.bundle = {};  // Bundle map
+    Ciao.depends = []; // Bundle dependencies
+    Ciao.ciao_root_URL = null; // URL for CIAOROOT (null when not initialized yet)
+
+    globalThis.__emciao = EMCiao; // (make it visible for bundle preloader)
+
+    Ciao.bind_funcs = function() {
+      Ciao.init = EMCiao.cwrap('ciaowasm_init', 'number', ['string']);
+      Ciao.boot = EMCiao.cwrap('ciaowasm_boot', 'number', []);
+      Ciao.run = EMCiao.cwrap('ciaowasm_run', 'number', ['string']);
+      Ciao.query_begin = EMCiao.cwrap('ciaowasm_query_begin', 'number', ['string']);
+      Ciao.query_ok = EMCiao.cwrap('ciaowasm_query_ok', 'number', []);
+      Ciao.query_suspended = EMCiao.cwrap('ciaowasm_query_suspended', 'number', []);
+      Ciao.query_resume = EMCiao.cwrap('ciaowasm_query_resume', 'number', []);
+      Ciao.query_next = EMCiao.cwrap('ciaowasm_query_next', 'number', []);
+      Ciao.query_end = EMCiao.cwrap('ciaowasm_query_end', 'number', []);
+    };
+
+    function mkdir_noerr(path) {
+      try { FS.mkdir(path); } catch(e) { /* ignore errors */ };
+    }
+
+    Ciao.preload_file = function(dir,relpath) {
+      if (Ciao.ciao_root_URL === null) throw new Error('null ciao_root_URL');
+      var srcurl = Ciao.ciao_root_URL + relpath;
+      var srcdir = dir + '/' + relpath;
+      var spath = srcdir.split('/');
+
+      /* Create directory path */
+      var len = spath.length - 1;
+      var dir = "";
+      if (len > 0) {
+        dir += spath[0];
+        mkdir_noerr(dir);
+        for (var i = 1; i < len; i++) {
+          dir += "/"+spath[i];
+          mkdir_noerr(dir);
+        }
+      }
+      var base = spath[len];
+
+      /* Create preloaded file */
+      //FS.createPreloadedFile(dir, base, srcurl, true, false);
+      FS.createPreloadedFile(dir, base, srcurl, true, true); // rw access
+      // TODO: only works in web workers, does not work in lpdoc example
+      // FS.createLazyFile(dir, base, srcurl, true, true); // rw access
+    };
+
+    Ciao.preload_bundle = function(b) {
+      Ciao.bundle[b].preload();
+    };
+
+    Ciao.collect_wksps = function() {
+      let wksps = [];
+      let seen = {};
+      for (const j of Ciao.depends) {
+        var wksp = Ciao.bundle[j].wksp;
+        if (!seen[wksp]) {
+          wksps.unshift(wksp); /* right order? */
+          seen[wksp] = true;
+        }
+      }
+      return wksps;
+    };
+
+    // Update timestamps of build/cache files
+    // TODO: needs around 8ms
+    // TODO: allow frozen workspaces in c_itf, inhibits recompilation!
+    // TODO: update needed for dynamic use_bundle?
+    Ciao.update_timestamps = function(wksps) {
+      var tsnow = Date.now();
+      for (const wksp of wksps) {
+        const dir = wksp + "/build/cache";
+        for (const f of FS.readdir(dir)) {
+          if (f.endsWith('.po') || f.endsWith('.itf')) {
+            const path = dir + "/" + f;
+            // const timestamp = FS.lookupPath(path).node.timestamp;
+            FS.utime(path, tsnow, tsnow);
+          }
+        }
+      }
+    };
+
+    /* --------------------------------------------------------------------------- */
+    /* Initialization */
+
+    Ciao.init_emciao = function(ciao_root_URL, onready, onprintout, onprinterr) {
+      /* Start the engine with hooks for initialization */
+      EMCiao.noExitRuntime = true;
+      EMCiao['locateFile'] = function(path, prefix) {
+        var f;
+        // custom dirs
+        if (ciao_root_URL === null) throw new Error('null ciao_root_URL');
+        if (path.endsWith(".mem")) f = ciao_root_URL + "build/bin/" + path; else
+          if (path.endsWith(".wasm")) f = ciao_root_URL + "build/bin/" + path; else
+            if (path.endsWith(".bundle.js")) f = ciao_root_URL + "build/dist/" + path; else
+              if (path.endsWith(".mods.data")) f = ciao_root_URL + "build/dist/" + path; else
+                if (path.endsWith(".mods.js")) f = ciao_root_URL + "build/dist/" + path; else
+                  // otherwise, use the default, the prefix (JS file's dir) + the path
+                  f = prefix + path;
+        return f;
+      };
+      Ciao.ciao_root_URL = ciao_root_URL;
+      // Collect workspaces from dependencies
+      let wksps = Ciao.collect_wksps();
+      //
+      EMCiao.preRun = [];
+      EMCiao.onRuntimeInitialized = function() {
+        Ciao.update_timestamps(wksps);
+        //
+        Ciao.bind_funcs();
+        var bootfile = Ciao.bundle['core'].wksp + "/build/bin/" + Ciao.bootfile;
+        Ciao.init(bootfile);
+        /* Boot the engine and execute ciaowasm:main/0 (which exits with a
+           live runtime) */
+        Ciao.boot();
+        onready();
+      };
+      EMCiao.print = onprintout; // capture the stdout
+      EMCiao.printErr = onprinterr; // capture the stderr
+      /* Initialize FS (global!) and preload files */
+      EMCiao.preRun.push(function() {
+        FS = EMCiao['FS'];
+        // Preload bundle files (if needed)
+        for (const b of Ciao.depends) {
+          Ciao.preload_bundle(b);
+        }
+        var root_wksp = Ciao.bundle['core'].wksp;
+        Ciao.preload_file(root_wksp, "build/bin/" + Ciao.bootfile); /* TODO: change wksp? */
+        /* Set CIAOPATH from bundles */
+        (EMCiao.getENV())['CIAOPATH'] = wksps.join(":");
+      });
+      /* Begin execution of Emscripten (wasm) compiled engine */
+      CIAOENGINE.run(EMCiao);
+    };
+
+    /* --------------------------------------------------------------------------- */
+
+    Ciao.bootfile='ciaowasm';
+
+    /* Begin new query. See ciaowasm:query_one_fs/0 */
+    Ciao.query_one_begin = function(goal) {
+      var query;
+      query = 'q(('+goal+')).';
+      FS.writeFile('/.q-i', query, {encoding: 'utf8'});
+      startTimer();
+      Ciao.query_begin("ciaowasm:query_one_fs");
+      return query_result();
+    };
+
+    /* Obtain next solution */
+    Ciao.query_one_next = function() {
+      startTimer();
+      Ciao.query_next();
+      return query_result();
+    };
+
+    /* Resume query */
+    Ciao.query_one_resume = function() {
+      Ciao.query_resume();
+      return query_result();
+    };
+
+    function query_result() {
+      var time = checkTimer();
+      if (Ciao.query_ok()) {
+        if (Ciao.query_suspended()) {
+          return { cont: 'suspended', arg: '', time: time };
+        } else {
+          cont = FS.readFile('/.q-c', { encoding: 'utf8' });
+          arg = FS.readFile('/.q-a', { encoding: 'utf8' });
+          return { cont: cont, arg: arg, time: time };
+        }
+      } else {
+        return { cont: 'failed', arg: '', time: time };
+      }
+    }
+
+    /* --------------------------------------------------------------------------- */
+
+    /* Get Emscripten FS */
+    Ciao.getFS = function() { return FS; };
+
+    /* --------------------------------------------------------------------------- */
+
+    return Ciao;
+  }());
+
+  f.eng_load = function(url) {
     root_url = url;
-    importScripts(root_url + "build/bin/ciao-eng.js");
+    /* Load CIAOENGINE (generated from emcc) */
+    importScripts(root_url + "build/bin/ciaoengwasm.js");
     /* connect with browser console (for stdout) */
     console=self.console; /* TODO: keep only in debug? */
     return true;
   }
 
   function monitor_deps(numdeps) {
-    if (numdeps == 0) {
-      if (pending_load_id !== undefined) { // send message
-        postMessage({id: pending_load_id, ret: true}); // use async
-        pending_load_id = undefined;
+    if (numdeps == 0) { /* There are no more pending loads */
+      if (pending_load_hook !== undefined) { // send message
+        pending_load_hook();
+        pending_load_hook = undefined;
       }
       pending_load = false; // no pending loads
     }
   }
-  f.useBundle = function(bundle) {
-    postMessage({isLog: true, msg: `{loading bundle '${bundle}'}`});
+  f.use_bundle = function(bundle) {
+    console.log(`{loading bundle '${bundle}'}`);
+    var EMCiao = globalThis.__emciao;
     importScripts(root_url + "build/dist/" + bundle + ".bundle.js");
-    if (Module !== undefined) {
-      Module['monitorRunDependencies'] = monitor_deps;
+    if (Ciao.ciao_root_URL !== null) { /* not null if EMCiao is initialized */
+      /* we can preload the bundle now */
+      EMCiao['monitorRunDependencies'] = monitor_deps;
       pending_load = true; // at least one pending load
       Ciao.preload_bundle(bundle);
     }
     return true;
   }
-  f.bootInfo = function() {
-    Ciao.run("internals:$bootversion");
-    console.log('[Engine loaded in '+
-	        Ciao.stats.runtime_engine_load +
-	        ' ms, boot in ' +
-	        Ciao.stats.runtime_boot + ' ms]');
+  f.boot_info = function() {
+    Ciao.run("internals:$bootversion"); // TODO: rename run by commit_call
     return true;
   }
   f.get_ciao_root = function() { return Ciao.bundle['core'].wksp; }
@@ -179,29 +374,30 @@ function ciao_worker_fun() {
   f.query_end = function() { return Ciao.query_end(); };
 
   this.onmessage = function(event) {
-    var ret = null;
+    var resolve = (function (x) { postMessage({id: event.data.id, ret: x}); });
     switch(event.data.cmd) {
     case 'boot':
       /* (pass continuation) */
-      Ciao.init(root_url, (function () {
-        postMessage({id: event.data.id, ret: ret});
-      }), (function (out) {
+      Ciao.init_emciao(root_url, (function () {
+        resolve(null);
+      }), (function(out) {
         stdout += out + "\n";
       }), (function(err) {
         stderr += err + "\n";
       }));
-      return;
-    case 'waitNoDeps': /* Wait until there are no pending loading dependencies (for useBundle) */
+      break;
+    case 'wait_no_deps': /* Wait until there are no pending loading dependencies (for use_bundle) */
       if (pending_load) {
-        pending_load_id = event.data.id; /* wait */
+        if (pending_load_hook !== undefined) { throw new Error('unresolved pending load'); };
+        pending_load_hook = (function() { resolve(true); }); // (send when ready)
       } else { /* answer immediately */
-        postMessage({id: event.data.id, ret: ret});
+        resolve(true);
       }
-      return;
+      break;
     default:
-      ret = f[event.data.cmd].apply(undefined, event.data.args);
+      resolve(f[event.data.cmd].apply(undefined, event.data.args));
+      break;
     }
-    postMessage({id: event.data.id, ret: ret});
   };
 
   /* Connect console */
@@ -224,9 +420,8 @@ function ciao_worker_fun() {
 class CiaoWorker {
   constructor(ciao_root_URL) {
     var listeners = [];
-    this.pending_queue = [];
-    this.pending_loadEng = true;
-    this.pending_boot = true;
+    this.eng_loaded = false;
+    this.eng_booted = false;
     this.ciao_root_URL = ciao_root_URL;
     this.listeners = listeners;
 
@@ -253,17 +448,7 @@ class CiaoWorker {
    * is set on completion.
    * @return {CiaoPromiseProxy} Ciao promise with the result of the call.
    */
-  #async_() {
-    /* TODO: cleaner way? */
-    if (this.pending_queue.length > 0) { /* call queued calls before */
-      var f = this.pending_queue.shift();
-      var self = this;
-      var my_args = arguments;
-      return f(self).then(function(r) {
-        return self.#async_.apply(self, my_args);
-      });
-    }
-
+  #async_(cmd, args) {
     var proxy = new CiaoPromiseProxy();
     /* set in listeners (get next free id or push) */
     var id = 0;
@@ -277,39 +462,33 @@ class CiaoWorker {
     }
     this.w.postMessage({
       id: id, /* id of message in listener array */
-      cmd: arguments[0],
-      args: Array.prototype.slice.call(arguments, 1)
+      cmd: cmd,
+      args: args
     });
     return proxy;
   }
 
   /**
-   * Ensure the engine is loaded correctly.
+   * Ensure that Ciao is initialized. Level can be:
+   *   1: engine loaded
+   *   2: engine loaded and booted
    */
-  ensure_loadEng() {
-    if (this.pending_loadEng) {
-      this.pending_loadEng = false;
-      this.pending_queue.push(function(self) {
-        // (hack to get absolute url)
-        let a = document.createElement('a');
-        a.href = self.ciao_root_URL;
-        let root_url = a.href; // TODO: needs to be absolute due to importScripts from Worker
-        //
-        return self.#async_('loadEng', root_url);
-      });
+  async ensure_init(level) {
+    if (this.pending_level >= level) return;
+    this.pending_level = level;
+    if (level >= 1 && !this.eng_loaded) {
+      console.log(`{loading engine}`);
+      this.eng_loaded = true;
+      // (hack to get absolute url)
+      let a = document.createElement('a');
+      a.href = this.ciao_root_URL;
+      let root_url = a.href; // TODO: needs to be absolute due to importScripts from Worker
+      await this.#async_('eng_load', [root_url]);
     }
-  }
-
-  /**
-   * Ensure boot.
-   */
-  ensure_boot() {
-    this.ensure_loadEng();
-    if (this.pending_boot) {
-      this.pending_boot = false;
-      this.pending_queue.push(function(self) {
-        return self.#async_('boot');
-      });
+    if (level >= 2 && !this.eng_booted) {
+      console.log(`{booting engine}`);
+      this.eng_booted = true;
+      await this.#async_('boot', []);
     }
   }
 
@@ -318,41 +497,41 @@ class CiaoWorker {
    * @param {string} name - Name of the bundle. 
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  use_bundle(name) {
-    this.ensure_loadEng();
-    return this.#async_('useBundle', name);
+  async use_bundle(name) {
+    await this.ensure_init(1);
+    return await this.#async_('use_bundle', [name]);
   };
 
-  wait_no_deps() {
-    this.ensure_loadEng();
-    return this.#async_('waitNoDeps');
+  async wait_no_deps() {
+    await this.ensure_init(1);
+    return await this.#async_('wait_no_deps', []);
   }
 
   /**
    * Get the Ciao root path.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  get_ciao_root() {
-    this.ensure_loadEng();
-    return this.#async_('get_ciao_root');
+  async get_ciao_root() {
+    await this.ensure_init(1);
+    return await this.#async_('get_ciao_root', []);
   };
 
   /**
    * Get the stats of the latest call.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  get_stats() {
-    this.ensure_loadEng();
-    return this.#async_('get_stats');
+  async get_stats() {
+    await this.ensure_init(1);
+    return await this.#async_('get_stats', []);
   };
 
   /**
    * Show boot information in a JS console (this forces boot).
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  bootInfo() {
-    this.ensure_boot();
-    return this.#async_('bootInfo');
+  async boot_info() {
+    await this.ensure_init(2);
+    return await this.#async_('boot_info', []);
   };
 
   /**
@@ -362,12 +541,9 @@ class CiaoWorker {
    * @return {Object} - Query result
    */
   async query_one_begin(goal) {
-    this.ensure_boot();
-    let q_out = await this.#query_one_begin_(goal);
+    await this.ensure_init(2);
+    let q_out = await this.#async_('query_one_begin', [goal]);
     return await this.#query_complete(q_out);
-  }
-  #query_one_begin_(goal) {
-    return this.#async_('query_one_begin', goal);
   }
 
   /**
@@ -375,35 +551,32 @@ class CiaoWorker {
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
   async query_one_next() {
-    let q_out = await this.#query_one_next_();
+    let q_out = await this.#async_('query_one_next', []);
     return await this.#query_complete(q_out);
-  }
-  #query_one_next_() {
-    return this.#async_('query_one_next');
   }
 
   /* Resume query until completed (not suspended). Process jscmd buffer */
   async #query_complete(q_out) {
     while (true) {
-      let cmds = await this.recv_jscmds();
+      /* run cmds from jscmd buffer */
+      let cmds = await this.#async_('recv_jscmds', []);
       for (let cmd of cmds) {
-        await jscmd_run(this, cmd);
+        let ret = await jscmd_run(this, cmd);
+        await this.#async_('send_jsret', [ret]);
       }
+      /* await to resume execution if we are in a suspended state */
       if (q_out.cont !== 'suspended') break;
-      q_out = await this.#query_resume(); // (await here allows concurrency)
+      q_out = await this.#async_('query_one_resume', []); // (await here allows concurrency)
     }
     return q_out;
-  }
-  #query_resume() {
-    return this.#async_('query_one_resume');
   }
 
   /**
    * End the query process stopping its decision tree.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  query_end() {
-    return this.#async_('query_end');
+  async query_end() {
+    return await this.#async_('query_end', []);
   }
 
   /**
@@ -411,9 +584,9 @@ class CiaoWorker {
    * @param {string} path - Path of the file to read.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  readFile(path) {
-    this.ensure_boot();
-    return this.#async_('readFile', path);
+  async readFile(path) {
+    await this.ensure_init(2);
+    return await this.#async_('readFile', [path]);
   };
 
   /**
@@ -422,41 +595,25 @@ class CiaoWorker {
    * @param {string} contents - String of the contents to write in the file.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  writeFile(path, contents) {
-    this.ensure_boot();
-    return this.#async_('writeFile', path, contents);
+  async writeFile(path, contents) {
+    await this.ensure_init(2);
+    return await this.#async_('writeFile', [path, contents]);
   };
 
   /**
    * Capture the output of the most recent query/ies.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  read_stdout() {
-    return this.#async_('read_stdout');
+  async read_stdout() {
+    return await this.#async_('read_stdout', []);
   };
 
   /**
    * Capture the standard error of the most recent query/ies.
    * @return {CiaoPromiseProxy} - Result of the call to the worker.
    */
-  read_stderr() {
-    return this.#async_('read_stderr');
-  };
-
-  /**
-   * Receive all jscmd from the JS command buffer
-   * @return {CiaoPromiseProxy} - Result of the call to the worker.
-   */
-  recv_jscmds() {
-    return this.#async_('recv_jscmds');
-  };
-  /**
-   * Send output of the latest executed jscmd
-   * @param x - value (JSON)
-   * @return {CiaoPromiseProxy} - Result of the call to the worker.
-   */
-  send_jsret(x) {
-    return this.#async_('send_jsret', x);
+  async read_stderr() {
+    return await this.#async_('read_stderr', []);
   };
 
   /**
@@ -531,19 +688,13 @@ async function jscmd_run(w, jscmd) {
   switch(jscmd.cmd) {
   case 'def': /* define function */
     jscmd_f[jscmd.name] = Function('"use strict";return (' + jscmd.code + ')')();
-    break;
+    return null; /* TODO: provide id? */
   case 'call':
     jscmd.args.unshift(w); // worker as 1st argument
-    ret = jscmd_f[jscmd.name].apply(undefined, jscmd.args);
-    await w.send_jsret(ret);
-    //jscmd_send_output(w, ret);
-    break;
+    return jscmd_f[jscmd.name].apply(undefined, jscmd.args);
   case 'acall':
     jscmd.args.unshift(w); // worker as 1st argument
-    ret = await jscmd_f[jscmd.name].apply(undefined, jscmd.args);
-    await w.send_jsret(ret);
-    //jscmd_send_output(w, ret);
-    break;
+    return await jscmd_f[jscmd.name].apply(undefined, jscmd.args);
   default:
     console.log('error: unknown jscmd: ' + jscmd);
   }

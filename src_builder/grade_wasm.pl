@@ -8,7 +8,7 @@
 %    cross-compilation target. This grade is needed to
 %    perform the rest of actions required for this grade:
 %
-%    - composing an encapsulated engine (`ciao-eng.js`) from raw
+%    - composing an encapsulated engine (`ciaoengwasm.js`) from raw
 %      WebAssembly compiled engine
 %    - preparing bundle distributions for serving through HTTP
 %    - computing meta-data for populating the Emscripten filesystem
@@ -253,9 +253,7 @@ bundlejs(Bundle) -->
     ( { use_data_file } ->
         { atom_concat(Bundle, '.mods', BundleData) },
         % TODO: importScripts only works in webworkers!
-        "Module = Ciao.module;\n", % TODO: needed for packager .js files
-        "LZ4 = Module.getLZ4();\n", % TODO: needed for packager .js files
-        "importScripts(Ciao.ciao_root_URL + 'build/dist/", emit_atom(BundleData), ".js');\n"
+        "importScripts(globalThis.__emciao.locateFile('", emit_atom(BundleData), ".js', ''));\n"
     ; { findall(X, bundle_contents(Bundle, X), Xs) },
       ciao_preload_files(Xs)
     ),
@@ -349,7 +347,7 @@ remove_dir_if_exists(X) :-
 
 rel_bin_dir := 'build/bin'.
 
-% Put together ciao-eng.js and the WASM compiled engine
+% Put together ciaoengwasm.js and the WASM compiled engine
 dist_engine(Eng) :-
     ObjDir = ~eng_path(objdir, Eng),
     EngName = ~eng_mainmod(Eng),
@@ -359,10 +357,9 @@ dist_engine(Eng) :-
     %
     DistBinDir = ~rel_dist(~distdir, ~rel_bin_dir),
     mkpath(DistBinDir),
-    % OutJs = 'build/eng/ciaoengwasm/objs/ciao-eng.js',
-    OutJs = ~path_concat(DistBinDir, 'ciao-eng.js'),
-    copy_file(~bundle_path(ciaowasm, 'js/ciao-eng.js'), OutJs, [overwrite]),
-    copy_file(~bundle_path(ciaowasm, 'js/pre-js.js'), OutJs, [append]),
+    % OutJs = 'build/eng/ciaoengwasm/objs/ciaoengwasm.js',
+    OutJs = ~path_concat(DistBinDir, 'ciaoengwasm.js'),
+    copy_file(~bundle_path(ciaowasm, 'js/pre-js.js'), OutJs, [overwrite]),
     copy_file(~path_concat(ObjDir, EngJs), OutJs, [append]),
     copy_file(~bundle_path(ciaowasm, 'js/post-js.js'), OutJs, [append]),
 %       % Copy the engine .js.mem
@@ -398,6 +395,7 @@ pack_wksp(Name, OrigWksp, FromWksp, ToWksp) :-
       DataFile,
       '--lz4',
       % '--use-preload-cache', % (limits?)
+      '--export-name=globalThis.__emciao',
       '--preload',
       ~atom_concat(FromWksp, ~atom_concat('@', OrigWksp)),
       ~atom_concat('--js-output=', JSFile)]).

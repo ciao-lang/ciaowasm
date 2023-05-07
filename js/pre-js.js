@@ -1,4 +1,4 @@
-// Encapsulated Ciao engine
+// Encapsulated Ciao engine (generated with emcc)
 var CIAOENGINE = {
   run: function(inmod) {
     var Module = inmod;
@@ -7,6 +7,4 @@ var CIAOENGINE = {
     Module['preRun'].push(function() { Module['FS'] = FS; });
     // Make ENV visible
     if (!Module['getENV']) Module['getENV'] = function() { return ENV; };
-    // Make LZ4 visible
-    if (!Module['getLZ4']) Module['getLZ4'] = function() { return LZ4; };
 
