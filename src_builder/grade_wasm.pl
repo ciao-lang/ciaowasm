@@ -237,23 +237,23 @@ bundle_contents(Bundle, X) :- srcs(Bundle, X).
 % ---------------------------------------------------------------------------
 % Our own bundle file preloader JS code
 
+% TODO: write a json file instead
 bundlejs(Bundle) -->
     { bundle_workspace(Bundle, Wksp) },
     "// Preload modules and sources\n",
-    "var Ciao;\n",
-    "if (typeof Ciao === 'undefined') Ciao = eval('(function() { try { return Ciao || {} } catch(e) { return {} } })()');\n",
-    "if (!Ciao.depends) Ciao.depends = [];\n",
-    "Ciao.depends.push('", emit_atom(Bundle), "');\n",
     "(function () {\n",
+    "  if (typeof globalThis.__ciao === 'undefined') globalThis.__ciao = eval('(function() { try { return globalThis.__ciao || {} } catch(e) { return {} } })()');\n",
+    "  var Ciao = globalThis.__ciao;\n",
+    "  if (!Ciao.depends) Ciao.depends = [];\n",
+    "  Ciao.depends.push('", emit_atom(Bundle), "');\n",
     "  var wksp = '", emit_atom(Wksp), "';\n",
     "  var bundle = {};\n",
     "  Ciao.bundle['", emit_atom(Bundle), "'] = bundle;\n",
     "  bundle.wksp = wksp;\n",
-    "  bundle.preload = function () {\n",
+    "  bundle.preload = async function () {\n",
     ( { use_data_file } ->
         { atom_concat(Bundle, '.mods', BundleData) },
-        % TODO: importScripts only works in webworkers!
-        "importScripts(globalThis.__emciao.locateFile('", emit_atom(BundleData), ".js', ''));\n"
+        "await tryImportScript(globalThis.__emciao.locateFile('", emit_atom(BundleData), ".js', ''));\n"
     ; { findall(X, bundle_contents(Bundle, X), Xs) },
       ciao_preload_files(Xs)
     ),
