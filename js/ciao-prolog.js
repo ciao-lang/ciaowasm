@@ -1228,8 +1228,10 @@ if (ENVIRONMENT_IS_NODE) {
     global.tryImportScript = tryImportScript; // TODO: why?
     // TODO: better way?
     var data = await fs.readFile(src);
-    // TODO: on error, log shows the whole script, how can I avoid it? (added some \n\n)
-    vm.runInThisContext("\n\n"+data+"\n\n", {displayErrors: false});
+    // Note: emcc options "-s NODEJS_CATCH_EXIT=0 -s
+    // NODEJS_CATCH_REJECTION=0" are required to prevent nodejs from
+    // printing whole code on exceptions
+    vm.runInThisContext(data, {displayErrors: false, filename:src});
   };
 
   /* (nodejs) Readline-based Comint (for interacting with a ToplevelProc) */
