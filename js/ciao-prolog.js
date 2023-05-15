@@ -96,29 +96,12 @@ function new_LLCiao() {
   var stdout = "";
   var stderr = "";
 
-  var prev_time = null;
-  function now() { return (new Date()).getTime(); }
-  function startTimer() { prev_time = now(); }
-  function checkTimer() { return (now() - prev_time); } /* milliseconds */
-
   var LLCiao = {};
   LLCiao.emciao_initialized = false;
   LLCiao.stats = {};   // Statistics
   LLCiao.bundle = {};  // Bundle map
   LLCiao.depends = []; // Bundle dependencies
   LLCiao.root_URL = null; // URL for CIAOROOT (null when not initialized yet)
-
-  /* Binding to C functions (see main-ciaowasm.c) */
-  LLCiao.bind_funcs = function() {
-    LLCiao.init = EMCiao.cwrap('ciaowasm_init', 'number', ['string']);
-    LLCiao.boot = EMCiao.cwrap('ciaowasm_boot', 'number', []);
-    LLCiao.query_begin = EMCiao.cwrap('ciaowasm_query_begin', 'number', ['string']);
-    LLCiao.query_ok = EMCiao.cwrap('ciaowasm_query_ok', 'number', []);
-    LLCiao.query_suspended = EMCiao.cwrap('ciaowasm_query_suspended', 'number', []);
-    LLCiao.query_resume = EMCiao.cwrap('ciaowasm_query_resume', 'number', []);
-    LLCiao.query_next = EMCiao.cwrap('ciaowasm_query_next', 'number', []);
-    LLCiao.query_end = EMCiao.cwrap('ciaowasm_query_end', 'number', []);
-  };
 
   /* --------------------------------------------------------------------------- */
 
@@ -319,11 +302,12 @@ function new_LLCiao() {
     EMCiao.onRuntimeInitialized = function() {
       LLCiao.update_timestamps(wksps);
       //
-      LLCiao.bind_funcs();
       var bootfile = LLCiao.get_ciao_root() + "/build/bin/" + LLCiao.bootfile;
-      LLCiao.init(bootfile);
+      let bootfile_ptr = EMCiao.stringToNewUTF8(bootfile);
+      EMCiao._ciaowasm_init(bootfile_ptr);
+      EMCiao._free(bootfile_ptr);
       /* Boot the engine, which will execute main/0 and exit with a live runtime */
-      LLCiao.boot();
+      EMCiao._ciaowasm_boot();
       /* (Continue) */
       LLCiao.emciao_initialized = true;
       resolve(null);
@@ -343,37 +327,43 @@ function new_LLCiao() {
     query = 'q(('+goal+')).';
     let FS = LLCiao.getFS();
     FS.writeFile('/.q-i', query, {encoding: 'utf8'});
-    startTimer();
-    LLCiao.query_begin("ciaowasm:query_one_fs");
+    let q_ptr = EMCiao.stringToNewUTF8("ciaowasm:query_one_fs");
+    EMCiao._ciaowasm_query_begin(q_ptr);
+    EMCiao._free(q_ptr);
     return query_result();
   };
 
   /* Obtain next solution */
   LLCiao.query_one_next = function() {
-    startTimer();
-    LLCiao.query_next();
+    EMCiao._ciaowasm_query_next();
     return query_result();
   };
 
   /* Resume query */
   LLCiao.query_one_resume = function() {
-    LLCiao.query_resume();
+    EMCiao._ciaowasm_query_resume();
     return query_result();
   };
 
+  /* End query */
+  LLCiao.query_end = function() {
+    EMCiao._ciaowasm_query_end();
+  }
+
   function query_result() {
-    var time = checkTimer();
-    if (LLCiao.query_ok()) {
-      if (LLCiao.query_suspended()) {
-        return { cont: 'suspended', arg: '', time: time };
+    let is_ok = EMCiao._ciaowasm_query_ok();
+    if (is_ok) {
+      let is_suspended = EMCiao._ciaowasm_query_suspended();
+      if (is_suspended) {
+        return { cont: 'suspended', arg: '' };
       } else {
         let FS = LLCiao.getFS();
         cont = FS.readFile('/.q-c', { encoding: 'utf8' });
         arg = FS.readFile('/.q-a', { encoding: 'utf8' });
-        return { cont: cont, arg: arg, time: time };
+        return { cont: cont, arg: arg };
       }
     } else {
-      return { cont: 'failed', arg: '', time: time };
+      return { cont: 'failed', arg: '' };
     }
   }
 
@@ -1136,9 +1126,6 @@ class ToplevelProc {
    */
 
   async treat_sol(q_out, treat_outerr) {
-    if (toplevelCfg.statistics) {
-      console.log('{Solved in ' + q_out.time + ' ms.}');
-    }
     let out = await this.w.read_stdout();
     let err = await this.w.read_stderr();
     /* print stdout and stderr output */
