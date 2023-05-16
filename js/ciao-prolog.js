@@ -89,7 +89,40 @@ class CiaoPromiseProxy {
  */
 
 function new_LLCiao() {
+  var ENVIRONMENT_IS_WORKER = typeof importScripts === 'function';
   var ENVIRONMENT_IS_NODE = typeof process == 'object' && typeof process.versions == 'object' && typeof process.versions.node == 'string';
+
+  if (ENVIRONMENT_IS_NODE) {
+    const fs = require('fs/promises');
+    const vm = require('vm');
+    var tryImportScript = async function(src) {
+      global.require = require; // TODO: why?
+      global.__dirname = __dirname; // TODO: why?
+      global.tryImportScript = tryImportScript; // TODO: why?
+      // TODO: better way?
+      var data = await fs.readFile(src);
+      // Note: emcc options "-s NODEJS_CATCH_EXIT=0 -s
+      // NODEJS_CATCH_REJECTION=0" are required to prevent nodejs from
+      // printing whole code on exceptions
+      vm.runInThisContext(data, {displayErrors: false, filename:src});
+    };
+    var tryFetchJSON = async function(src) {
+      var data = await fs.readFile(src);
+      return JSON.parse(data);
+    };
+  } else {
+    if (ENVIRONMENT_IS_WORKER) {
+      var tryImportScript = async function(src) {
+        importScripts(src); // async interface to importScripts from Web Worker
+      };
+    } else {
+      var tryImportScript = globalThis.tryImportScript;
+    }
+    var tryFetchJSON = async function(src) {
+      const response = await fetch(src);
+      return await response.json();
+    };
+  }
 
   var EMCiao = {}; // Emscripten module for CIAOENGINE
 
@@ -152,7 +185,14 @@ function new_LLCiao() {
   LLCiao.preload_bundle = async function(b) {
     // this loads *.mods.js
     globalThis.__emciao = EMCiao;
-    return LLCiao.bundle[b].preload();
+    const b_data = LLCiao.bundle[b];
+    if (b_data.hasOwnProperty('data_file')) {
+      await tryImportScript(EMCiao.locateFile(b_data.data_file, ''));
+    } else if (b_data.hasOwnProperty('preload_files')) {
+      for (const rel_path of b_data.preload_files) {
+        LLCiao.preload_file(b_data.wksp, rel_path);
+      }
+    }
   };
 
   LLCiao.collect_wksps = function() {
@@ -221,9 +261,12 @@ function new_LLCiao() {
   }
   LLCiao.use_bundle = async function(bundle) {
     if (!ENVIRONMENT_IS_NODE) console.log(`{loading bundle '${bundle}'}`);
-    globalThis.__ciao = LLCiao; // for *.bundle.js
-    // (this fill LLCiao.depends and LLCiao.bundle -- see grade_wasm.pl)
-    await tryImportScript(LLCiao.root_URL + "build/dist/" + bundle + ".bundle.js");
+    // Read and store .bundle.json metadata (see grade_wasm.pl)
+    const b_data = await tryFetchJSON(LLCiao.root_URL + "build/dist/" + bundle + ".bundle.json");
+    if (!LLCiao.depends) LLCiao.depends = [];
+    LLCiao.depends.push(b_data.name);
+    LLCiao.bundle[b_data.name] = b_data;
+    // Initiate load if possible
     if (LLCiao.emciao_initialized) { /* (preRun has already been called, preload here) */
       pending_load = true; // at least one pending load
       await LLCiao.preload_bundle(bundle);
@@ -470,9 +513,6 @@ function new_LLCiao() {
 // TODO: make Web Worker optional
 function ciao_worker_fun() {
   var __ciao = new_LLCiao();
-  var tryImportScript = async function(src) {
-    importScripts(src); // async interface to importScripts from Web Worker
-  };
   this.onmessage = function(event) {
     var resolve = (function (x) { postMessage({id: event.data.id, ret: x}); });
     __ciao.run_cmd(event.data.cmd, event.data.args).then(resolve);
@@ -1212,8 +1252,6 @@ class ToplevelProc {
 var ENVIRONMENT_IS_NODE = typeof process == 'object' && typeof process.versions == 'object' && typeof process.versions.node == 'string';
 
 if (ENVIRONMENT_IS_NODE) {
-  const fs = require('fs/promises');
-  const vm = require('vm');
   const path = require('path');
   const process = require('process');
 
@@ -1221,18 +1259,6 @@ if (ENVIRONMENT_IS_NODE) {
 
   // Locate site path relative to the script dir
   var site_path = path.join(__dirname, '..');
-
-  var tryImportScript = async function(src) {
-    global.require = require; // TODO: why?
-    global.__dirname = __dirname; // TODO: why?
-    global.tryImportScript = tryImportScript; // TODO: why?
-    // TODO: better way?
-    var data = await fs.readFile(src);
-    // Note: emcc options "-s NODEJS_CATCH_EXIT=0 -s
-    // NODEJS_CATCH_REJECTION=0" are required to prevent nodejs from
-    // printing whole code on exceptions
-    vm.runInThisContext(data, {displayErrors: false, filename:src});
-  };
 
   /* (nodejs) Readline-based Comint (for interacting with a ToplevelProc) */
 

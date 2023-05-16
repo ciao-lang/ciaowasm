@@ -177,7 +177,6 @@ check_dist_ext('.png', assets_http).
 check_dist_ext('.svg', assets_http).
 
 :- use_module(engine(internals), [po_filename/2, itf_filename/2]).
-:- use_module(library(streams)).
 
 % TODO: move or integrate into source_tree.pl library?
 find_precomp_file(Kind, BaseDir, File) :-
@@ -235,36 +234,28 @@ bundle_contents(Bundle, X) :- srcs(Bundle, X).
 :- use_module(library(aggregates), [findall/3]).
 
 % ---------------------------------------------------------------------------
-% Our own bundle file preloader JS code
+% Bundle metadata in JSON
 
-% TODO: write a json file instead
-bundlejs(Bundle) -->
+bundle_json(Bundle) -->
     { bundle_workspace(Bundle, Wksp) },
-    "// Preload modules and sources\n",
-    "(function () {\n",
-    "  if (typeof globalThis.__ciao === 'undefined') globalThis.__ciao = eval('(function() { try { return globalThis.__ciao || {} } catch(e) { return {} } })()');\n",
-    "  var Ciao = globalThis.__ciao;\n",
-    "  if (!Ciao.depends) Ciao.depends = [];\n",
-    "  Ciao.depends.push('", emit_atom(Bundle), "');\n",
-    "  var wksp = '", emit_atom(Wksp), "';\n",
-    "  var bundle = {};\n",
-    "  Ciao.bundle['", emit_atom(Bundle), "'] = bundle;\n",
-    "  bundle.wksp = wksp;\n",
-    "  bundle.preload = async function () {\n",
+    % preload modules and sources
+    "{\n",
+    "  \"name\": \"", emit_atom(Bundle), "\"", ",\n",
+    "  \"wksp\": \"", emit_atom(Wksp), "\"", ",\n",
     ( { use_data_file } ->
         { atom_concat(Bundle, '.mods', BundleData) },
-        "await tryImportScript(globalThis.__emciao.locateFile('", emit_atom(BundleData), ".js', ''));\n"
+        "  \"data_file\": \"", emit_atom(BundleData), ".js\""
     ; { findall(X, bundle_contents(Bundle, X), Xs) },
-      ciao_preload_files(Xs)
+      "  \"preload_files\": ", ciao_preload_files(Xs)
     ),
-    "  };\n",
-    "})();\n".
+    "\n",
+    "}\n".
 
 ciao_preload_files([]) --> [].
-ciao_preload_files([X|Xs]) --> ciao_preload(X), ciao_preload_files(Xs).
+ciao_preload_files([X]) --> !, ciao_preload_file(X).
+ciao_preload_files([X|Xs]) --> ciao_preload_file(X), ",\n", ciao_preload_files(Xs).
 
-ciao_preload(RelPath) -->
-    "Ciao.preload_file(wksp, '", emit_atom(RelPath), "');\n".
+ciao_preload_file(RelPath) --> "\"", emit_atom(RelPath), "\"".
 
 :- use_module(library(lists), [append/3]).
 
@@ -286,13 +277,13 @@ use_data_file. % Store files in a single data file per bundle
 dist_bundle(Bundle) :-
     % Copy files
     wksp_copy_bundle(Bundle, ~distdir),
-    % Create .bundle.js file
-    create_bundlejs(Bundle, ~distdir).
+    % Create .bundle.json file
+    create_bundle_json(Bundle, ~distdir).
 
-create_bundlejs(Bundle, ToWksp) :-
+create_bundle_json(Bundle, ToWksp) :-
     wksp_mkpath(ToWksp, 'build/dist'),
-    BundleJS = ~rel_dist(ToWksp, ~path_concat('build/dist', ~atom_concat(Bundle, '.bundle.js'))),
-    bundlejs(Bundle, Str, []),
+    BundleJS = ~rel_dist(ToWksp, ~path_concat('build/dist', ~atom_concat(Bundle, '.bundle.json'))),
+    bundle_json(Bundle, Str, []),
     string_to_file(Str, BundleJS).
 
 wksp_copy_bundle(Bundle, ToWksp) :-
