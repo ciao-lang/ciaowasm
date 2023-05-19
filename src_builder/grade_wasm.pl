@@ -154,6 +154,7 @@ disttmpdir := ~bundle_path(core, builddir, 'sitetmp'). % TODO: customize!
 
 :- use_module(library(source_tree), [current_file_find/3]).
 :- use_module(library(source_tree), [remove_dir/1]).
+:- use_module(library(source_tree), [get_file_srctype/2]).
 :- use_module(library(pathnames), [path_get_relative/3]).
 :- use_module(library(bundle/bundle_paths), [bundle_workspace/2]).
 
@@ -229,75 +230,69 @@ bundle_contents(Bundle, X) :- srcs(Bundle, X).
 
 :- use_module(library(format), [format/3]).
 :- use_module(library(system), [copy_file/3, file_exists/1, cd/1, working_directory/2]).
-:- use_module(library(system_extra), [mkpath/1]).
+:- use_module(library(system_extra), [mkpath/1, del_file_nofail/1]).
 :- use_module(library(stream_utils), [string_to_file/2]).
 :- use_module(library(aggregates), [findall/3]).
 
 % ---------------------------------------------------------------------------
-% Bundle metadata in JSON
+% Prepare a bundle distribution
 
-bundle_json(Bundle) -->
-    { bundle_workspace(Bundle, Wksp) },
-    % preload modules and sources
-    "{\n",
-    "  \"name\": \"", emit_atom(Bundle), "\"", ",\n",
-    "  \"wksp\": \"", emit_atom(Wksp), "\"", ",\n",
-    ( { use_data_file } ->
-        { atom_concat(Bundle, '.mods', BundleData) },
-        "  \"data_file\": \"", emit_atom(BundleData), ".js\""
-    ; { findall(X, bundle_contents(Bundle, X), Xs) },
-      "  \"preload_files\": ", ciao_preload_files(Xs)
-    ),
-    "\n",
-    "}\n".
-
-ciao_preload_files([]) --> [].
-ciao_preload_files([X]) --> !, ciao_preload_file(X).
-ciao_preload_files([X|Xs]) --> ciao_preload_file(X), ",\n", ciao_preload_files(Xs).
-
-ciao_preload_file(RelPath) --> "\"", emit_atom(RelPath), "\"".
-
-:- use_module(library(lists), [append/3]).
-
-emit_atom(X) -->
-    { atom_codes(X, Cs) },
-    emit_string(Cs).
-
-emit_string(X, Xs, Xs0) :- append(X, Xs0, Xs).
-
-% ---------------------------------------------------------------------------
-% Copy a bundle to a target workspace
+:- use_module(library(pillow/json)).
 
 % use_data_file :- fail.
 use_data_file. % Store files in a single data file per bundle
 
-% TODO: Add options to select which files go into the .data, etc.
-
-% Pack a bundle into distdir
+% Prepare a bundle distribution and make it available in distdir
 dist_bundle(Bundle) :-
-    % Copy files
-    wksp_copy_bundle(Bundle, ~distdir),
+    ToWksp = ~distdir,
+    bundle_workspace(Bundle, Wksp),
+    dist_assets(Bundle, Wksp, ToWksp),
+    dist_contents(Bundle, Wksp, ToWksp, Items, []),
     % Create .bundle.json file
-    create_bundle_json(Bundle, ~distdir).
-
-create_bundle_json(Bundle, ToWksp) :-
+    JSON = json([
+        name = ~atmstr(Bundle),
+        wksp = ~atmstr(Wksp)
+    | Items]),
+    Str = ~json_to_string(JSON),
     wksp_mkpath(ToWksp, 'build/dist'),
     BundleJS = ~rel_dist(ToWksp, ~path_concat('build/dist', ~atom_concat(Bundle, '.bundle.json'))),
-    bundle_json(Bundle, Str, []),
     string_to_file(Str, BundleJS).
 
-wksp_copy_bundle(Bundle, ToWksp) :-
-    bundle_workspace(Bundle, Wksp),
-    % copy individual assets that need to be accessible through HTTP 
+% Copy individual assets that need to be accessible through HTTP 
+dist_assets(Bundle, Wksp, ToWksp) :-
     findall(X, assets_http(Bundle, X), Ys),
-    wksp_copy_files(Ys, Wksp, ToWksp),
-    %
+    wksp_copy_files(Ys, Wksp, ToWksp).
+
+% Copy bundle contents
+dist_contents(Bundle, Wksp, ToWksp, Items, Items0) :-
     findall(X, bundle_contents(Bundle, X), Xs),
     ( use_data_file ->
-        wksp_mkpath(ToWksp, 'build/dist'),
-        wksp_pack_files(Xs, Wksp, ToWksp, ~path_concat('build/dist', ~atom_concat(Bundle, '.mods')))
-    ; wksp_copy_files(Xs, Wksp, ToWksp)
+        split_dist(Xs, Wksp, Srcs, Mods),
+        dist_data_sect(src_data, ~atom_concat(Bundle, '.src'), Srcs, Wksp, ToWksp, Items, Items1),
+        dist_data_sect(mods_data, ~atom_concat(Bundle, '.mods'), Mods, Wksp, ToWksp, Items1, Items0)
+    ; % TODO: allow both
+      wksp_copy_files(Xs, Wksp, ToWksp),
+      Items = [preload_files = ~atmstr_list(Xs)|Items0]
     ).
+
+dist_data_sect(DataKey, DataItem, Xs, Wksp, ToWksp, Items, Items0) :-
+    ( Xs = [] ->
+        Items = Items0
+    ; Items = [DataKey = ~atmstr(~atom_concat(DataItem, '.js'))|Items0],
+      wksp_mkpath(ToWksp, 'build/dist'),
+      wksp_pack_files(Xs, Wksp, ToWksp, ~path_concat('build/dist', DataItem))
+    ).
+
+% split files into sources (e.g., for analysis) and packages/incldued/precompiled (already compiled)
+split_dist([], _, [], []).
+split_dist([X|Xs], Wksp, Srcs, Mods) :-
+    ( path_splitext(X, _, '.pl'),
+      path_concat(Wksp, X, Path),
+      get_file_srctype(Path, module) ->
+        Srcs = [X|Srcs0], Mods = Mods0 % source
+    ; Srcs = Srcs0, Mods = [X|Mods0] % other
+    ),
+    split_dist(Xs, Wksp, Srcs0, Mods0).
 
 wksp_copy_files([], _FromWksp, _ToWksp).
 wksp_copy_files([X|Xs], FromWksp, ToWksp) :-
@@ -325,14 +320,26 @@ wksp_copy_file(FromWksp, ToWksp, RelPath) :-
     ).
 
 wksp_pack_files(Xs, Wksp, ToWksp, Name) :-
-    TmpWksp = ~disttmpdir,
-    remove_dir_if_exists(TmpWksp),
-    wksp_copy_files(Xs, Wksp, TmpWksp),
-    pack_wksp(Name, Wksp, TmpWksp, ToWksp),
-    remove_dir_if_exists(TmpWksp).
+    DataFile = ~path_concat(ToWksp, ~atom_concat(Name, '.data')),
+    JSFile = ~path_concat(ToWksp, ~atom_concat(Name, '.js')),
+    ( Xs = [] -> % no files to pack, remove output
+        del_file_nofail(DataFile),
+        del_file_nofail(JSFile)
+    ; TmpWksp = ~disttmpdir,
+      remove_dir_if_exists(TmpWksp),
+      mkpath(TmpWksp),
+      wksp_copy_files(Xs, Wksp, TmpWksp),
+      pack_wksp(Wksp, TmpWksp, DataFile, JSFile),
+      remove_dir_if_exists(TmpWksp)
+    ).
 
 remove_dir_if_exists(X) :-
     ( file_exists(X) -> remove_dir(X) ; true ).
+
+atmstr(X) := string(Cs) :- atom_codes(X,Cs).
+
+atmstr_list([]) := [].
+atmstr_list([X|Xs]) := [~atmstr(X) | ~atmstr_list(Xs)].
 
 % ---------------------------------------------------------------------------
 
@@ -379,16 +386,15 @@ dist_cmd(Bundle, Name) :-
 :- use_module(library(system), [find_executable/2, file_property/2]).
 :- use_module(engine(stream_basic), [fixed_absolute_file_name/3]).
 
-pack_wksp(Name, OrigWksp, FromWksp, ToWksp) :-
-    DataFile = ~path_concat(ToWksp, ~atom_concat(Name, '.data')),
-    JSFile = ~path_concat(ToWksp, ~atom_concat(Name, '.js')),
+% Pack files from FromDir (which will be mounted on FinalDir). Output DataFile and JSFile.
+pack_wksp(FinalDir, FromDir, DataFile, JSFile) :-
     emcc_file_packager([
       DataFile,
       '--lz4',
       % '--use-preload-cache', % (limits?)
       '--export-name=globalThis.__emciao',
       '--preload',
-      ~atom_concat(FromWksp, ~atom_concat('@', OrigWksp)),
+      ~atom_concat(FromDir, ~atom_concat('@', FinalDir)),
       ~atom_concat('--js-output=', JSFile)]).
 
 find_file_packager(Exec) :-

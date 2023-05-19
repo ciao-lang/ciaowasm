@@ -182,17 +182,23 @@ function new_LLCiao() {
     // FS.createLazyFile(dir, base, srcurl, true, true); // rw access
   };
 
+  async function maybeImportData(b_data, key) {
+    if (b_data.hasOwnProperty(key)) {
+      await tryImportScript(EMCiao.locateFile(b_data[key], ''));
+    }
+  }
+
   LLCiao.preload_bundle = async function(b) {
     // this loads *.mods.js
     globalThis.__emciao = EMCiao;
     const b_data = LLCiao.bundle[b];
-    if (b_data.hasOwnProperty('data_file')) {
-      await tryImportScript(EMCiao.locateFile(b_data.data_file, ''));
-    } else if (b_data.hasOwnProperty('preload_files')) {
+    if (b_data.hasOwnProperty('preload_files')) {
       for (const rel_path of b_data.preload_files) {
         LLCiao.preload_file(b_data.wksp, rel_path);
       }
     }
+    await Promise.all([maybeImportData(b_data, 'src_data'),
+                       maybeImportData(b_data, 'mods_data')]);
   };
 
   LLCiao.collect_wksps = function() {
@@ -304,7 +310,8 @@ function new_LLCiao() {
       if (root_URL === null) throw new Error('null root_URL');
       if (path.endsWith(".mem")) return root_URL + "build/bin/" + path;
       if (path.endsWith(".wasm")) return root_URL + "build/bin/" + path;
-      if (path.endsWith(".bundle.js")) return root_URL + "build/dist/" + path;
+      if (path.endsWith(".src.data")) return root_URL + "build/dist/" + path;
+      if (path.endsWith(".src.js")) return root_URL + "build/dist/" + path;
       if (path.endsWith(".mods.data")) return root_URL + "build/dist/" + path;
       if (path.endsWith(".mods.js")) return root_URL + "build/dist/" + path;
       // otherwise, use the default, the prefix (JS file's dir) + the path
@@ -966,6 +973,8 @@ class ToplevelProc {
     for (const b of toplevelCfg.init_bundles) {
       await this.w.use_bundle(b);
     }
+    // // TODO: parallel load does not speed up load
+    // await Promise.all(toplevelCfg.init_bundles.map(async (b) => { await this.w.use_bundle(b); }));
     // Boot and show system info
     {
       await this.w.query_one_begin("'$:'('internals:$bootversion')"); // TODO: check errors!
