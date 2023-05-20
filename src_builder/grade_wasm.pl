@@ -229,7 +229,7 @@ bundle_contents(Bundle, X) :- srcs(Bundle, X).
 :- use_module(ciaobld(config_common), [cmd_path/4]).
 
 :- use_module(library(format), [format/3]).
-:- use_module(library(system), [copy_file/3, file_exists/1, cd/1, working_directory/2]).
+:- use_module(library(system), [touch/1, copy_file/3, file_exists/1, cd/1, working_directory/2]).
 :- use_module(library(system_extra), [mkpath/1, del_file_nofail/1]).
 :- use_module(library(stream_utils), [string_to_file/2]).
 :- use_module(library(aggregates), [findall/3]).
@@ -261,26 +261,31 @@ dist_bundle(Bundle) :-
 % Copy individual assets that need to be accessible through HTTP 
 dist_assets(Bundle, Wksp, ToWksp) :-
     findall(X, assets_http(Bundle, X), Ys),
-    wksp_copy_files(Ys, Wksp, ToWksp).
+    wksp_copy_files(Ys, copy, Wksp, ToWksp).
 
 % Copy bundle contents
 dist_contents(Bundle, Wksp, ToWksp, Items, Items0) :-
     findall(X, bundle_contents(Bundle, X), Xs),
     ( use_data_file ->
         split_dist(Xs, Wksp, Srcs, Mods),
-        dist_data_sect(src_data, ~atom_concat(Bundle, '.src'), Srcs, Wksp, ToWksp, Items, Items1),
-        dist_data_sect(mods_data, ~atom_concat(Bundle, '.mods'), Mods, Wksp, ToWksp, Items1, Items0)
+        ( bundle_need_src(Bundle) -> Mode = copy ; Mode = touch ),
+        dist_data_sect(src_data, ~atom_concat(Bundle, '.src'), Srcs, Mode, Wksp, ToWksp, Items, Items1),
+        dist_data_sect(mods_data, ~atom_concat(Bundle, '.mods'), Mods, copy, Wksp, ToWksp, Items1, Items0)
     ; % TODO: allow both
-      wksp_copy_files(Xs, Wksp, ToWksp),
+      wksp_copy_files(Xs, copy, Wksp, ToWksp),
       Items = [preload_files = ~atmstr_list(Xs)|Items0]
     ).
 
-dist_data_sect(DataKey, DataItem, Xs, Wksp, ToWksp, Items, Items0) :-
+% TODO: customize! generate both and load dynamically
+%bundle_need_src(core).
+bundle_need_src(_). % TODO: it seems to work, but it needs more testing
+
+dist_data_sect(DataKey, DataItem, Xs, Mode, Wksp, ToWksp, Items, Items0) :-
     ( Xs = [] ->
         Items = Items0
     ; Items = [DataKey = ~atmstr(~atom_concat(DataItem, '.js'))|Items0],
       wksp_mkpath(ToWksp, 'build/dist'),
-      wksp_pack_files(Xs, Wksp, ToWksp, ~path_concat('build/dist', DataItem))
+      wksp_pack_files(Xs, Mode, Wksp, ToWksp, ~path_concat('build/dist', DataItem))
     ).
 
 % split files into sources (e.g., for analysis) and packages/incldued/precompiled (already compiled)
@@ -294,15 +299,15 @@ split_dist([X|Xs], Wksp, Srcs, Mods) :-
     ),
     split_dist(Xs, Wksp, Srcs0, Mods0).
 
-wksp_copy_files([], _FromWksp, _ToWksp).
-wksp_copy_files([X|Xs], FromWksp, ToWksp) :-
-    wksp_copy_file_ensure_path(FromWksp, ToWksp, X),
-    wksp_copy_files(Xs, FromWksp, ToWksp).
+wksp_copy_files([], _Mode, _FromWksp, _ToWksp).
+wksp_copy_files([X|Xs], Mode, FromWksp, ToWksp) :-
+    wksp_copy_file_ensure_path(Mode, FromWksp, ToWksp, X),
+    wksp_copy_files(Xs, Mode, FromWksp, ToWksp).
 
-wksp_copy_file_ensure_path(FromWksp, ToWksp, X) :-
+wksp_copy_file_ensure_path(Mode, FromWksp, ToWksp, X) :-
     path_split(X, D, _),
     wksp_mkpath(ToWksp, D),
-    wksp_copy_file(FromWksp, ToWksp, X).
+    wksp_copy_file(Mode, FromWksp, ToWksp, X).
 
 % Path is the full path given Wksp and relative path RelPath
 rel_dist(Wksp, RelPath, Path) :-
@@ -312,14 +317,17 @@ rel_dist(Wksp, RelPath, Path) :-
 
 wksp_mkpath(ToWksp, Path) :- mkpath(~rel_dist(ToWksp, Path)).
 
-wksp_copy_file(FromWksp, ToWksp, RelPath) :-
+wksp_copy_file(Mode, FromWksp, ToWksp, RelPath) :-
     From = ~path_concat(FromWksp, RelPath),
     To = ~rel_dist(ToWksp, RelPath),
     ( From == To -> throw(bug_copy_same_wksp) % copy_file/3 erases content!
-    ; copy_file(From, To, [overwrite])
+    ; ( Mode = copy -> copy_file(From, To, [overwrite])
+      ; Mode = touch -> touch(To) % (just an empty file)
+      ; throw(bug)
+      )
     ).
 
-wksp_pack_files(Xs, Wksp, ToWksp, Name) :-
+wksp_pack_files(Xs, Mode, Wksp, ToWksp, Name) :-
     DataFile = ~path_concat(ToWksp, ~atom_concat(Name, '.data')),
     JSFile = ~path_concat(ToWksp, ~atom_concat(Name, '.js')),
     ( Xs = [] -> % no files to pack, remove output
@@ -328,7 +336,7 @@ wksp_pack_files(Xs, Wksp, ToWksp, Name) :-
     ; TmpWksp = ~disttmpdir,
       remove_dir_if_exists(TmpWksp),
       mkpath(TmpWksp),
-      wksp_copy_files(Xs, Wksp, TmpWksp),
+      wksp_copy_files(Xs, Mode, Wksp, TmpWksp),
       pack_wksp(Wksp, TmpWksp, DataFile, JSFile),
       remove_dir_if_exists(TmpWksp)
     ).
@@ -377,7 +385,7 @@ dist_cmd(Bundle, Name) :-
     cmd_path(Bundle, plexe, Name, Exe),
     bundle_workspace(Bundle, Wksp),
     path_get_relative(Wksp, Exe, RelPath),
-    wksp_copy_file_ensure_path(Wksp, ~distdir, RelPath).
+    wksp_copy_file_ensure_path(copy, Wksp, ~distdir, RelPath).
 
 % ---------------------------------------------------------------------------
 % Call Emscripten's file_packager.py to generate compressed LZ4 data files
