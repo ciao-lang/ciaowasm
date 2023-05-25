@@ -1,6 +1,6 @@
 :- module(ciaowasm, [], [assertions, doccomments]).
 
-%! \title Support predicates for ciao-prolog.js
+%! \title Boot code and support predicates for ciao-prolog.js
 %
 %  \module This defines a predicates to executes queries and returns
 %  solutions using a minimalistic text-based interface.
@@ -15,6 +15,8 @@
 :- use_module(library(write)).
 %
 :- use_module(library(timeout), [call_with_time_limit/3]). % TODO: Currently not working, just add here to avoid a dynlink failure, e.g., from unittests
+
+:- use_package(foreign_js).
 
 % ---------------------------------------------------------------------------
 
@@ -85,6 +87,16 @@ query_call_fs(q(Dict, VarNames, Goal)) :-
     ; Result = exception(_) -> write_sol(Result)
     ; Result = no -> fail
     ).
+
+% (hook for toplevel_io.pl)
+:- multifile top_get_line_hook/1.
+top_get_line_hook(Line) :-
+    fake_flush,
+    js_call('$dbgtrace_get_line'(string(Line))).
+
+% (foreign_js)
+% [JS code ignored, treated directly in ciao-prolog.js]
+js_def('$dbgtrace_get_line'("_"), [async, ret], "return null;").
 
 :- endif.
 

@@ -400,12 +400,30 @@ function new_LLCiao() {
     EMCiao._ciaowasm_query_end();
   }
 
+  function recv_jscmd() {
+    let str;
+    let cmd;
+    let FS = LLCiao.getFS();
+    try {
+      str = FS.readFile('/.j-c', {encoding: 'utf8'});
+      FS.unlink('/.j-c');
+    } catch(err) {
+      return null;
+    }
+    return JSON.parse(str);
+  }
+
   function query_result() {
     let is_ok = EMCiao._ciaowasm_query_ok();
     if (is_ok) {
       let is_suspended = EMCiao._ciaowasm_query_suspended();
       if (is_suspended) {
-        return { cont: 'suspended', arg: '' };
+        let cmd = recv_jscmd(); // null if none
+        // special case for debugger
+        if (cmd !== null && cmd.cmd === 'acall' && cmd.name === '$dbgtrace_get_line') {
+          return { cont: 'dbgtrace', arg: null };
+        }
+        return { cont: 'suspended', arg: cmd };
       } else {
         let FS = LLCiao.getFS();
         cont = FS.readFile('/.q-c', { encoding: 'utf8' });
@@ -449,26 +467,7 @@ function new_LLCiao() {
   };
 
   /* --------------------------------------------------------------------------- */
-  // TODO: queue and send only 1?
 
-  LLCiao.recv_jscmds = function() {
-    let str;
-    let FS = LLCiao.getFS();
-    try {
-      str = FS.readFile('/.j-c', {encoding: 'utf8'});
-      FS.unlink('/.j-c');
-    } catch(err) {
-      return [];
-    }
-    if (str === '') return [];
-    let cmds = [];
-    let lines = str.split("\n");
-    for (let line of lines) {
-      if (line === '') continue;
-      cmds.push(JSON.parse(line));
-    }
-    return cmds;
-  };
   LLCiao.send_jsret = function(x) {
     if (x === undefined) return true;
     try {
@@ -487,7 +486,6 @@ function new_LLCiao() {
   f['readFile'] = true;
   f['read_stdout'] = true;
   f['read_stderr'] = true;
-  f['recv_jscmds'] = true;
   f['send_jsret'] = true;
   f['query_one_begin'] = true;
   f['query_one_resume'] = true;
@@ -668,21 +666,27 @@ class CiaoWorker {
     return await this.#query_complete(q_out);
   }
 
-  /** Resume query until completed (not suspended). Process jscmd buffer 
+  /** Resume query until completed (not suspended). Process jscmd if needed
    */
   async #query_complete(q_out) {
-    while (true) {
-      /* run cmds from jscmd buffer */
-      let cmds = await this.#async_('recv_jscmds', []);
-      for (let cmd of cmds) {
+    while (q_out.cont === 'suspended') {
+      let cmd = q_out.arg;
+      if (cmd !== null) { /* run cmd if needed */
         let ret = await jscmd_run(this, cmd);
         await this.#async_('send_jsret', [ret]);
       }
-      /* await to resume execution if we are in a suspended state */
-      if (q_out.cont !== 'suspended') break;
-      q_out = await this.#async_('query_one_resume', []); // (await here allows concurrency)
+      q_out = await this.#async_('query_one_resume', []);
     }
     return q_out;
+  }
+
+  /** Resume a query suspended in dbgtrace
+   */
+  async query_resume_dbgtrace(dbgcmd) {
+    /* pre: previous q_out.cont === 'dbgtrace' */
+    await this.#async_('send_jsret', [dbgcmd]);
+    let q_out = await this.#async_('query_one_resume', []);
+    return await this.#query_complete(q_out);
   }
 
   /**
@@ -900,7 +904,8 @@ toplevelCfg = Object.assign({...toplevelCfg_defaults}, toplevelCfg);
 var QueryState = {
   READY: 0, // ready for a query
   RUNNING: 1, // query running
-  VALIDATING: 2 // prompt waiting for validating solution
+  VALIDATING: 2, // prompt waiting for validating solution
+  DBGTRACE: 3 // prompt in a debugging state
 };
 
 class ToplevelProc {
@@ -1106,9 +1111,9 @@ class ToplevelProc {
     }
     return true;
   }
-  check_not_locked(comint) { /* Alert if we are locked validating in another comint */
+  check_not_locked(comint) { /* Alert if we are locked validating/debugging in another comint */
     if (this.comint !== comint) {
-      alert('Already validating a query');
+      alert('Already validating/debugging a query');
       return false;
     }
     return true;
@@ -1137,7 +1142,7 @@ class ToplevelProc {
     this.cancel_query_timeout();
     if (!this.muted && opts.msg !== undefined) this.comint.set_log('');
     //
-    await this.treat_sol(q_out, tr.treat_outerr); // print solution
+    await this.treat_sol(q_out, tr.treat_outerr); // treat query result
   }
 
   /**
@@ -1155,7 +1160,7 @@ class ToplevelProc {
       this.update_state(QueryState.READY);
       this.q_opts = {};
       /*if (!this.muted)*/ this.comint.display_status_new_prompt('yes');
-    } else {// ask for the next solution
+    } else { // ask for the next solution
       // TODO: almost duplicated
       this.update_state(QueryState.RUNNING);
       // next query solution
@@ -1163,8 +1168,26 @@ class ToplevelProc {
       let q_out = await this.w.query_one_next();
       this.cancel_query_timeout();
       //
-      await this.treat_sol(q_out, null); // print solution
+      await this.treat_sol(q_out, null); // treat query result
     }
+  }
+
+  /**
+   * Resume an execution stopped by the debugger (this.state === QueryState.DBGTRACE).
+   */
+  async resume_dbgtrace(comint, dbgcmd) {
+    this.comint = comint; // attach to this comint
+    if (this.state !== QueryState.DBGTRACE) {
+      console.log('bug: not in a debugging state'); // TODO: treat_enter too fast?
+      return; // TODO: action is lost!
+    }
+    this.update_state(QueryState.RUNNING);
+    // continue execution
+    this.set_query_timeout();
+    let q_out = await this.w.query_resume_dbgtrace(dbgcmd);
+    this.cancel_query_timeout();
+    //
+    await this.treat_sol(q_out, null); // treat query result
   }
 
   /**
@@ -1179,6 +1202,11 @@ class ToplevelProc {
     let err = await this.w.read_stderr();
     /* print stdout and stderr output */
     if (!this.muted) this.comint.print_out(out+err);
+    /* special case for debugger */
+    if (q_out.cont === 'dbgtrace') { // TODO: better way?
+      this.update_state(QueryState.DBGTRACE);
+      return;
+    }
     /* print solution */
     let solstatus;
     if (q_out.cont === 'failed') { // no more solutions
@@ -1333,11 +1361,15 @@ if (ENVIRONMENT_IS_NODE) {
     }
     set_log(text) {}
 
+    // TODO: refactor with ciao_playground.js
     async #treat_enter_(text) {
       const cproc = this.pg.cproc;
       if (cproc.state === QueryState.VALIDATING) {
         if (!cproc.check_not_locked(this)) return; // TODO: not possible?
         await cproc.validate_sol(this, text);
+      } if (cproc.state === QueryState.DBGTRACE) {
+        if (!cproc.check_not_locked(this)) return; // TODO: not possible?
+        await cproc.resume_dbgtrace(this, text);
       } else {
         // Perform query
         if (text === '') {
