@@ -1104,19 +1104,25 @@ class ToplevelProc {
     this.comint.update_inner_layout(); // (query state changed)
   }
 
-  check_not_running() { /* Alert if we are still running */
+  /* Alert if we are still running */
+  check_not_running() {
     if (this.state === QueryState.RUNNING) {
       alert('Already running a query');
       return false;
     }
     return true;
   }
-  check_not_locked(comint) { /* Alert if we are locked validating/debugging in another comint */
+  /* Alert if we are locked validating/debugging in another comint */
+  check_not_locked(comint) {
     if (this.comint !== comint) {
-      alert('Already validating/debugging a query');
+      alert('Already validating/debugging a query in other comint');
       return false;
     }
     return true;
+  }
+  /* Waiting for a line (validating query or debugging state) */
+  is_waiting_for_line() {
+    return (this.state === QueryState.VALIDATING || this.state === QueryState.DBGTRACE);
   }
 
   /**
@@ -1146,48 +1152,39 @@ class ToplevelProc {
   }
 
   /**
-   * Validate solution or execute new query on the toplevel (Pre: this.state === QueryState.VALIDATING).
-   * @param {string} action - action (accept, fail to get new answer, etc.)
+   * Send a line command (`action`). This is used to validate
+   * solutions (if this.state === QueryState.VALIDATING) or send a
+   * debugger command (if this.state === QueryState.DBGTRACE)
    */
-  async validate_sol(comint, action) {
+  async send_line(comint, action) {
     this.comint = comint; // attach to this comint
-    if (this.state !== QueryState.VALIDATING) {
-      console.log('bug: not in a validating solution state'); // TODO: treat_enter too fast?
-      return; // TODO: action is lost!
-    }
-    if (action === '') { // accept solution, end query
-      await this.w.query_end();
-      this.update_state(QueryState.READY);
-      this.q_opts = {};
-      /*if (!this.muted)*/ this.comint.display_status_new_prompt('yes');
-    } else { // ask for the next solution
-      // TODO: almost duplicated
+    if (this.state === QueryState.VALIDATING) {
+      if (action === '') { // accept solution, end query
+        await this.w.query_end();
+        this.update_state(QueryState.READY);
+        this.q_opts = {};
+        /*if (!this.muted)*/ this.comint.display_status_new_prompt('yes');
+      } else { // ask for the next solution
+        // TODO: almost duplicated
+        this.update_state(QueryState.RUNNING);
+        // next query solution
+        this.set_query_timeout();
+        let q_out = await this.w.query_one_next();
+        this.cancel_query_timeout();
+        //
+        await this.treat_sol(q_out, null); // treat query result
+      }
+    } else if (this.state === QueryState.DBGTRACE) {
       this.update_state(QueryState.RUNNING);
-      // next query solution
+      // continue execution
       this.set_query_timeout();
-      let q_out = await this.w.query_one_next();
+      let q_out = await this.w.query_resume_dbgtrace(action);
       this.cancel_query_timeout();
       //
       await this.treat_sol(q_out, null); // treat query result
+    } else {
+      console.log('bug: not in a validating/debugging solution state'); // TODO: treat_enter too fast?
     }
-  }
-
-  /**
-   * Resume an execution stopped by the debugger (this.state === QueryState.DBGTRACE).
-   */
-  async resume_dbgtrace(comint, dbgcmd) {
-    this.comint = comint; // attach to this comint
-    if (this.state !== QueryState.DBGTRACE) {
-      console.log('bug: not in a debugging state'); // TODO: treat_enter too fast?
-      return; // TODO: action is lost!
-    }
-    this.update_state(QueryState.RUNNING);
-    // continue execution
-    this.set_query_timeout();
-    let q_out = await this.w.query_resume_dbgtrace(dbgcmd);
-    this.cancel_query_timeout();
-    //
-    await this.treat_sol(q_out, null); // treat query result
   }
 
   /**
@@ -1364,12 +1361,9 @@ if (ENVIRONMENT_IS_NODE) {
     // TODO: refactor with ciao_playground.js
     async #treat_enter_(text) {
       const cproc = this.pg.cproc;
-      if (cproc.state === QueryState.VALIDATING) {
+      if (cproc.is_waiting_for_line()) {
         if (!cproc.check_not_locked(this)) return; // TODO: not possible?
-        await cproc.validate_sol(this, text);
-      } if (cproc.state === QueryState.DBGTRACE) {
-        if (!cproc.check_not_locked(this)) return; // TODO: not possible?
-        await cproc.resume_dbgtrace(this, text);
+        await cproc.send_line(this, text);
       } else {
         // Perform query
         if (text === '') {
