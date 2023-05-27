@@ -217,8 +217,20 @@ regs(Bundle, RelPath) :-
     ; RelPath = ~path_concat('build/bundlereg', ~atom_concat(Bundle, '.bundlecfg'))
     ).
 
-bundle_contents(Bundle, X) :- regs(Bundle, X).
-bundle_contents(Bundle, X) :- srcs(Bundle, X).
+% TODO: ad-hoc! customize
+cachedata(ciaopp, Wksp, RelPath) :-
+    CacheDir = 'build/data/ciaopp_lib_cache',
+    ( X = 'lib_assertion_read.pl'
+    ; X = 'lib_itf_db.pl'
+    ; X = 'lib_prop_clause_read.pl'
+    ; X = 'lib_typedb.pl'
+    ),
+    RelPath = ~path_concat(CacheDir, X),
+    file_exists(~path_concat(Wksp, RelPath)). % (may not exist)
+
+bundle_contents(Bundle, _, X) :- regs(Bundle, X).
+bundle_contents(Bundle, Wksp, X) :- cachedata(Bundle, Wksp, X).
+bundle_contents(Bundle, _, X) :- srcs(Bundle, X).
 
 % ---------------------------------------------------------------------------
 
@@ -265,7 +277,7 @@ dist_assets(Bundle, Wksp, ToWksp) :-
 
 % Copy bundle contents
 dist_contents(Bundle, Wksp, ToWksp, Items, Items0) :-
-    findall(X, bundle_contents(Bundle, X), Xs),
+    findall(X, bundle_contents(Bundle, Wksp, X), Xs),
     ( use_data_file ->
         split_dist(Xs, Wksp, Srcs, Mods),
         ( bundle_need_src(Bundle) -> Mode = copy ; Mode = touch ),
