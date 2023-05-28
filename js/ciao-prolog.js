@@ -843,6 +843,12 @@ const toplevelCfg_defaults = {
       on_init: ['use_module(lpdoc(docmaker))']
     },
     //
+    "set_menu_flag": { // arity {3}
+      read_code: false,
+      mark_errs: false,
+      depends: ['ciaopp','typeslib'],
+      on_init: ["use_module(ciaopp(ciaopp))"]
+    },
     "module": {
       read_code: true,
       mark_errs: true,
