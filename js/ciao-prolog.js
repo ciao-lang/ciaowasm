@@ -988,6 +988,7 @@ class ToplevelProc {
     // await Promise.all(toplevelCfg.init_bundles.map(async (b) => { await this.w.use_bundle(b); }));
     // Boot and show system info
     {
+      this.w.curr_cproc = this; // TODO: simplify
       await this.w.query_one_begin("'$:'('internals:$bootversion')"); // TODO: check errors!
       let out = await this.w.read_stdout();
       let err = await this.w.read_stderr();
@@ -1035,6 +1036,7 @@ class ToplevelProc {
   // Do a query, only one solution, dump stdout/stderr, 
   async muted_query_dumpout(q) {
     if (toplevelCfg.statistics) console.log(`{implicit: ${q}}`);
+    this.w.curr_cproc = this; // TODO: simplify
     await this.w.query_one_begin(q);
     await this.dumpout(); // TODO: check errors!
     await this.w.query_end();
@@ -1150,6 +1152,7 @@ class ToplevelProc {
     // begin a new query
     if (!this.muted && opts.msg !== undefined) this.comint.set_log(opts.msg); 
     this.set_query_timeout();
+    this.w.curr_cproc = this; // TODO: simplify
     let q_out = await this.w.query_one_begin(query);
     this.cancel_query_timeout();
     if (!this.muted && opts.msg !== undefined) this.comint.set_log('');
@@ -1166,6 +1169,7 @@ class ToplevelProc {
     this.comint = comint; // attach to this comint
     if (this.state === QueryState.VALIDATING) {
       if (action === '') { // accept solution, end query
+        this.w.curr_cproc = this; // TODO: simplify
         await this.w.query_end();
         this.update_state(QueryState.READY);
         this.q_opts = {};
@@ -1175,6 +1179,7 @@ class ToplevelProc {
         this.update_state(QueryState.RUNNING);
         // next query solution
         this.set_query_timeout();
+        this.w.curr_cproc = this; // TODO: simplify
         let q_out = await this.w.query_one_next();
         this.cancel_query_timeout();
         //
@@ -1184,6 +1189,7 @@ class ToplevelProc {
       this.update_state(QueryState.RUNNING);
       // continue execution
       this.set_query_timeout();
+      this.w.curr_cproc = this; // TODO: simplify
       let q_out = await this.w.query_resume_dbgtrace(action);
       this.cancel_query_timeout();
       //
@@ -1320,7 +1326,11 @@ if (ENVIRONMENT_IS_NODE) {
     }
     async upload_code_to_worker() {
     }
-    async mark_errs() {
+    mark_errs(out, err) {
+    }
+    /* mark source debug info */
+    mark_srcdbg_info(info) {
+      this.comint.display(`         In ${info.src} (${info.ln0}-${info.ln1}) ${info.pred}-${info.num}\n`);
     }
   }
 

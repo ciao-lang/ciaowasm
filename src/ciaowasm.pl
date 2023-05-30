@@ -98,6 +98,24 @@ top_get_line_hook(Line) :-
 % [JS code ignored, treated directly in ciao-prolog.js]
 js_def('$dbgtrace_get_line'("_"), [async, ret], "return null;").
 
+% (hook for debugger_lib.pl)
+:- multifile print_srcdbg_info_hook/6.
+print_srcdbg_info_hook(Pport, Pred, Src, Ln0, Ln1, Number) :-
+    fake_flush, % (only when printing to toplevel)
+    atom_codes(Pport, PortCs),
+    atom_codes(Pred, PredCs),
+    atom_codes(Src, SrcCs),
+    Info = json([port=string(PortCs),
+                 pred=string(PredCs),
+                 src=string(SrcCs),
+                 ln0=Ln0,
+                 ln1=Ln1,
+                 num=Number]),
+    js_call('$mark_srcdbg_info'(Info)).
+
+% (foreign_js)
+js_def('$mark_srcdbg_info'("info"), [], "w.curr_cproc.comint.pg.mark_srcdbg_info(info);").
+    
 :- endif.
 
 % ---------------------------------------------------------------------------
