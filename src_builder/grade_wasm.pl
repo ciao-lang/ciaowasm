@@ -220,9 +220,7 @@ regs(Bundle, RelPath) :-
 % TODO: ad-hoc! customize
 cachedata(ciaopp, Wksp, RelPath) :-
     CacheDir = 'build/data/ciaopp_lib_cache',
-    ( X = 'lib_assertion_read.pl'
-    ; X = 'lib_itf_db.pl'
-    ; X = 'lib_prop_clause_read.pl'
+    ( X = 'lib_p_unit_db.pl'
     ; X = 'lib_typedb.pl'
     ),
     RelPath = ~path_concat(CacheDir, X),
