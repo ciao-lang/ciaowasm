@@ -830,7 +830,7 @@ const toplevelCfg_defaults = {
     "run_tests_in_module": {
       read_code: true,
       mark_errs: true,
-      depends: ['ciaodbg'],
+      depends: ['ciaodbg_extra'],
       on_init: ["use_module(library(unittest))"]
     },
 //    "clean_mods": {
