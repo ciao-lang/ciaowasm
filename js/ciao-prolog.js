@@ -135,6 +135,7 @@ function new_LLCiao() {
   LLCiao.bundle = {};  // Bundle map
   LLCiao.depends = []; // Bundle dependencies
   LLCiao.root_URL = null; // URL for CIAOROOT (null when not initialized yet)
+  LLCiao.vers_URL = null; // versioning URL suffix
 
   /* --------------------------------------------------------------------------- */
 
@@ -164,9 +165,15 @@ function new_LLCiao() {
     }
   }
 
-  LLCiao.preload_file = function(dir,relpath) {
+  LLCiao.res_URL = function(relpath) {
     if (LLCiao.root_URL === null) throw new Error('null root_URL');
-    var srcurl = LLCiao.root_URL + relpath;
+    var urlsuff = LLCiao.vers_URL;
+    if (urlsuff === null) urlsuff = '';
+    return LLCiao.root_URL + relpath + urlsuff;
+  }
+
+  LLCiao.preload_file = function(dir,relpath) {
+    var srcurl = LLCiao.res_URL(relpath);
     var srcdir = dir + '/' + relpath;
     /* Split in dir and base */
     var dirsplit = srcdir.split('/');
@@ -268,7 +275,7 @@ function new_LLCiao() {
   LLCiao.use_bundle = async function(bundle) {
     if (!ENVIRONMENT_IS_NODE) console.log(`{loading bundle '${bundle}'}`);
     // Read and store .bundle.json metadata (see grade_wasm.pl)
-    const b_data = await tryFetchJSON(LLCiao.root_URL + "build/dist/" + bundle + ".bundle.json");
+    const b_data = await tryFetchJSON(LLCiao.res_URL("build/dist/" + bundle + ".bundle.json"));
     if (!LLCiao.depends) LLCiao.depends = [];
     LLCiao.depends.push(b_data.name);
     LLCiao.bundle[b_data.name] = b_data;
@@ -289,11 +296,12 @@ function new_LLCiao() {
    * `ciaoengwasm`).
    */
 
-  LLCiao.eng_load = async function(url, eng) {
+  LLCiao.eng_load = async function(url, eng, vers) {
     LLCiao.root_URL = url;
+    LLCiao.vers_URL = vers;
     /* Load CIAOENGINE (generated from emcc) */
     if (!ENVIRONMENT_IS_NODE) console.log(`{loading engine '${eng}'}`);
-    await tryImportScript(LLCiao.root_URL + "build/bin/" + eng + ".js");
+    await tryImportScript(LLCiao.res_URL("build/bin/" + eng + ".js"));
     return true;
   };
 
@@ -306,14 +314,12 @@ function new_LLCiao() {
     /* Start the engine with hooks for initialization */
     EMCiao['locateFile'] = function(path, prefix) {
       // custom dirs
-      let root_URL = LLCiao.root_URL;
-      if (root_URL === null) throw new Error('null root_URL');
-      if (path.endsWith(".mem")) return root_URL + "build/bin/" + path;
-      if (path.endsWith(".wasm")) return root_URL + "build/bin/" + path;
-      if (path.endsWith(".src.data")) return root_URL + "build/dist/" + path;
-      if (path.endsWith(".src.js")) return root_URL + "build/dist/" + path;
-      if (path.endsWith(".mods.data")) return root_URL + "build/dist/" + path;
-      if (path.endsWith(".mods.js")) return root_URL + "build/dist/" + path;
+      if (path.endsWith(".mem")) return LLCiao.res_URL("build/bin/" + path);
+      if (path.endsWith(".wasm")) return LLCiao.res_URL("build/bin/" + path);
+      if (path.endsWith(".src.data")) return LLCiao.res_URL("build/dist/" + path);
+      if (path.endsWith(".src.js")) return LLCiao.res_URL("build/dist/" + path);
+      if (path.endsWith(".mods.data")) return LLCiao.res_URL("build/dist/" + path);
+      if (path.endsWith(".mods.js")) return LLCiao.res_URL("build/dist/" + path);
       // otherwise, use the default, the prefix (JS file's dir) + the path
       return prefix + path;
     };
@@ -545,10 +551,11 @@ var use_webworker = true;
  * interaction, has (optional) Web Worker support (CiaoPromiseProxy).
  */
 class CiaoWorker {
-  constructor(root_URL) {
+  constructor(root_URL, vers_URL) {
     this.eng_loaded = false;
     this.eng_booted = false;
     this.root_URL = root_URL;
+    this.vers_URL = vers_URL;
     //
     if (use_webworker) {
       var listeners = [];
@@ -609,7 +616,7 @@ class CiaoWorker {
         a.href = url;
         url = a.href; // TODO: needs to be absolute due to importScripts from Web Worker
       }
-      await this.#async_('eng_load', [url, "ciaoengwasm"]);
+      await this.#async_('eng_load', [url, "ciaoengwasm", this.vers_URL]);
     }
     if (level >= 2 && !this.eng_booted) {
       this.eng_booted = true;
@@ -915,8 +922,9 @@ var QueryState = {
 };
 
 class ToplevelProc {
-  constructor(root_URL) {
+  constructor(root_URL, vers_URL) {
     this.root_URL = root_URL;
+    this.vers_URL = vers_URL;
     this.w = null;
     this.comint = null; // associated comint ('null' to ignore)
     this.muted = false; // temporarily ignore comint // TODO: change comint instead?
@@ -935,7 +943,7 @@ class ToplevelProc {
   /* Start the worker (and load defaults, show prompt, load program) */
   async start() {
     if (!this.muted) this.comint.set_log('Loading bundles and booting');
-    this.w = new CiaoWorker(this.root_URL); // create a Ciao worker
+    this.w = new CiaoWorker(this.root_URL, this.vers_URL); // create a Ciao worker
     await this.load_ciao_defaults(); // TODO: check result?
     if (!this.muted) this.comint.set_log(''); 
     //
@@ -1443,7 +1451,7 @@ if (ENVIRONMENT_IS_NODE) {
 
   (async () => {
     // Start a new toplevel and connect to a RLPGCell for interaction
-    const cproc = new ToplevelProc(site_path+'/ciao/'); 
+    const cproc = new ToplevelProc(site_path+'/ciao/',''); 
     var pg = new RLPGCell(cproc);
     await pg.setup(rl);
     
