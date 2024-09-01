@@ -165,16 +165,19 @@ bundle_dist_file_list(Bundle, Kind, RelPath) :-
     % workspace relative path
     path_get_relative(Wksp, File, RelPath).
 
+% Files to be included in the wasm grade dist. 
+% TODO: We should have a more fine-grained way to do this
 check_dist_ext('.pl', src).
 check_dist_ext('.po', src).
 check_dist_ext('.itf', src).
+% Source but also included as assets.
 check_dist_ext('.js', src). % (assets)
 check_dist_ext('.css', src). % (assets)
-% Added so that .md and .lpdoc files are also included in wasm grade dist. 
-% Needed, e.g., for the core/examples dir, if it contains .md examples
-% TODO: We should have a more fine-grained way to do this
-check_dist_ext('.md', src). % (assets)
-check_dist_ext('.lpdoc', src). % (assets)
+% Documentation files (.md and .lpdoc) included, e.g.  for the
+% core/examples dir, if it contains .md examples
+% TODO: add another kind for 'examples'?
+check_dist_ext('.md', src). % (examples)
+check_dist_ext('.lpdoc', src). % (examples)
 %
 check_dist_ext('.html', assets_http).
 check_dist_ext('.js', assets_http).
@@ -183,14 +186,15 @@ check_dist_ext('.png', assets_http).
 check_dist_ext('.svg', assets_http).
 
 :- use_module(engine(internals), [po_filename/2, itf_filename/2]).
+:- use_module(engine(io_basic)).
 
 % TODO: move or integrate into source_tree.pl library?
 find_precomp_file(Kind, BaseDir, File) :-
     current_file_find(distributable_precomp(bin), BaseDir, File0),
-    ( check_nodist_file(BaseDir, File0) -> fail % do not distribute
-    ; path_splitext(File0, Base, Ext),
-      check_dist_ext(Ext, Kind)
-    ),
+    path_splitext(File0, Base, Ext),
+    check_dist_ext(Ext, Kind),
+    \+ check_nodist_file(BaseDir, File0, Ext), % do not distribute
+    ( ( Ext = '.md' ; Ext = '.lpdoc' ) -> display(fff(File0, Ext)), nl ; true ),
     ( File = File0 % the file % TODO: pack .pl for modules in a different file
     ; % if File may be a module, try .po or .itf (po_filename/2 and itf_filename/2 works with CIAOCCACHE)
       ( Ext = '.pl' -> % maybe a module, try .po and .itf
@@ -202,12 +206,21 @@ find_precomp_file(Kind, BaseDir, File) :-
     ).
 
 % TODO: ad-hoc! customize
-check_nodist_file(BaseDir, File) :-
+check_nodist_file(BaseDir, File, Ext) :-
     path_get_relative(BaseDir, File, RelFile),
     ( atom_concat('Manifest/', _, RelFile) -> true
     ; atom_concat('doc/', _, RelFile) -> true
     ; atom_concat('cmds/', _, RelFile) -> true
     ; atom_concat('src_builder/', _, RelFile) -> true
+    ; ( Ext = '.md' ; Ext = '.lpdoc' ) ->
+        % exclude docs from bundle root or source dirs (not examples)
+        ( path_split(RelFile, '', _) -> true % bundle root
+        ; atom_concat('engine/', _, RelFile) -> true % engine source
+        ; atom_concat('src/', _, RelFile) -> true % src
+        ; atom_concat('lib/', _, RelFile) -> true % lib
+        ; atom_concat('library/', _, RelFile) -> true % library
+        ; fail
+        )
     ; fail
     ).
 
