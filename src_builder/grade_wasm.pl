@@ -170,6 +170,11 @@ check_dist_ext('.po', src).
 check_dist_ext('.itf', src).
 check_dist_ext('.js', src). % (assets)
 check_dist_ext('.css', src). % (assets)
+% Added so that .md and .lpdoc files are also included in wasm grade dist. 
+% Needed, e.g., for the core/examples dir, if it contains .md examples
+% TODO: We should have a more fine-grained way to do this
+check_dist_ext('.md', src). % (assets)
+check_dist_ext('.lpdoc', src). % (assets)
 %
 check_dist_ext('.html', assets_http).
 check_dist_ext('.js', assets_http).
