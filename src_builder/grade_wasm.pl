@@ -194,7 +194,6 @@ find_precomp_file(Kind, BaseDir, File) :-
     path_splitext(File0, Base, Ext),
     check_dist_ext(Ext, Kind),
     \+ check_nodist_file(BaseDir, File0, Ext), % do not distribute
-    ( ( Ext = '.md' ; Ext = '.lpdoc' ) -> display(fff(File0, Ext)), nl ; true ),
     ( File = File0 % the file % TODO: pack .pl for modules in a different file
     ; % if File may be a module, try .po or .itf (po_filename/2 and itf_filename/2 works with CIAOCCACHE)
       ( Ext = '.pl' -> % maybe a module, try .po and .itf
