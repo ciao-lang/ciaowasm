@@ -880,6 +880,12 @@ const toplevelCfg_defaults = {
       depends: ['ciaopp','typeslib'],
       on_init: ["use_module(ciaopp(ciaopp))"]
     },
+    "write_ciaopp_menu_json": { // arity {0}
+      read_code: false,
+      mark_errs: false,
+      depends: ['ciaopp', 'typeslib'],
+      on_init: ["use_module(ciaopp(ciaopp))"]
+    },
     "filter_analyze": { // arity {1,2}
       read_code: true,
       mark_errs: true,
@@ -1046,16 +1052,33 @@ class ToplevelProc {
     if (toplevelCfg.statistics) console.log(`{implicit: ${q}}`);
     this.w.curr_cproc = this; // TODO: simplify
     await this.w.query_one_begin(q);
-    await this.dumpout(); // TODO: check errors!
-    await this.w.query_end();
-  }
-
-  // Dump last query stdout/stderr (ignore or show in console)
-  async dumpout() {
+    // TODO: check errors!
     let out = await this.w.read_stdout();
     let err = await this.w.read_stderr();
     if (toplevelCfg.statistics) console.log(out+err);
+    await this.w.query_end();
   }
+
+  // Do a query, only one solution, return stdout, 
+  async muted_query_getout(q) {
+    if (toplevelCfg.statistics) console.log(`{implicit: ${q}}`);
+    this.w.curr_cproc = this; // TODO: simplify
+    await this.w.query_one_begin(q);
+    // TODO: check errors!
+    let out = await this.w.read_stdout();
+    let err = await this.w.read_stderr();
+    if (toplevelCfg.statistics) console.log(err);
+    await this.w.query_end();
+    return out;
+  }
+
+  // [Marco]: Dead code!
+  //// Dump last query stdout/stderr (ignore or show in console)
+  //async dumpout() {
+  //  let out = await this.w.read_stdout();
+  //  let err = await this.w.read_stderr();
+  //  if (toplevelCfg.statistics) console.log(out+err);
+  //}
 
   /* ---------------------------------------------------------------------- */
 
