@@ -265,11 +265,11 @@ function new_LLCiao() {
 
   function monitor_deps(numdeps) {
     if (numdeps == 0) { // no more pending loads, notify if needed
+      pending_load = false; // no pending loads
       if (pending_load_resolve !== undefined) {
         pending_load_resolve();
         pending_load_resolve = undefined;
       }
-      pending_load = false; // no pending loads
     }
   }
   LLCiao.use_bundle = async function(bundle) {
@@ -340,15 +340,6 @@ function new_LLCiao() {
       // ('pre-js.js' intializes EMCiao['FS'] and EMCiao['getENV'])
       // Monitor run dependencies
       EMCiao['monitorRunDependencies'] = monitor_deps;
-      // Preload bundle files (if needed)
-      for (const b of LLCiao.depends) {
-        // annotate asynchronous preload_bundle termination as run dependencies for emscripten
-        var dep = "preload bundle "+b;
-        EMCiao['addRunDependency'](dep);
-        LLCiao.preload_bundle(b).then((result) => {
-          EMCiao['removeRunDependency'](dep);
-        });
-      }
       // Preload bootfile so that it is accessible from the FS
       LLCiao.preload_file(LLCiao.get_ciao_root(), "build/bin/" + LLCiao.bootfile); /* TODO: customize */
       /* Set CIAOPATH from bundles */
@@ -356,17 +347,26 @@ function new_LLCiao() {
     });
     // 
     EMCiao.onRuntimeInitialized = function() {
-      LLCiao.update_timestamps(wksps);
-      //
-      var bootfile = LLCiao.get_ciao_root() + "/build/bin/" + LLCiao.bootfile;
-      let bootfile_ptr = EMCiao.stringToNewUTF8(bootfile);
-      EMCiao._ciaowasm_init(bootfile_ptr);
-      EMCiao._free(bootfile_ptr);
-      /* Boot the engine, which will execute main/0 and exit with a live runtime */
-      EMCiao._ciaowasm_boot();
-      /* (Continue) */
-      LLCiao.emciao_initialized = true;
-      resolve(null);
+      (async () => {
+        LLCiao.emciao_initialized = true;
+        // Complete loading of dependencies added before initialization
+        for (const b of LLCiao.depends) {
+          pending_load = true; // at least one pending load
+          await LLCiao.preload_bundle(b);
+        }
+        //
+        await LLCiao.wait_no_deps();
+        LLCiao.update_timestamps(wksps);
+        //
+        var bootfile = LLCiao.get_ciao_root() + "/build/bin/" + LLCiao.bootfile;
+        let bootfile_ptr = EMCiao.stringToNewUTF8(bootfile);
+        EMCiao._ciaowasm_init(bootfile_ptr);
+        EMCiao._free(bootfile_ptr);
+        /* Boot the engine, which will execute main/0 and exit with a live runtime */
+        EMCiao._ciaowasm_boot();
+        /* (Continue) */
+        resolve(null);
+      })();
     };
     /* Begin execution of Emscripten (wasm) compiled engine */
     if (!ENVIRONMENT_IS_NODE) console.log(`{booting engine}`);
