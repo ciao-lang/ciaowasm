@@ -140,10 +140,10 @@ function new_LLCiao() {
   /* --------------------------------------------------------------------------- */
 
   LLCiao.get_stats = function() { return LLCiao.stats; };
+  LLCiao.get_bundle_wksp = function(b) { return LLCiao.bundle[b].wksp; };
+  LLCiao.get_bundle_srcdir = function(b) { return LLCiao.bundle[b].srcdir; };
 
   /* --------------------------------------------------------------------------- */
-
-  LLCiao.get_bundle_wksp = function(b) { return LLCiao.bundle[b].wksp; };
 
   function mkdir_noerr(path) {
     let FS = LLCiao.getFS();
@@ -341,6 +341,7 @@ function new_LLCiao() {
       // Monitor run dependencies
       EMCiao['monitorRunDependencies'] = monitor_deps;
       // Preload bootfile so that it is accessible from the FS
+      // (that file is not packaged in core)
       LLCiao.preload_file(LLCiao.get_bundle_wksp('core'), "build/bin/" + LLCiao.bootfile); /* TODO: customize */
       /* Set CIAOPATH from bundles */
       (EMCiao.getENV())['CIAOPATH'] = wksps.join(":");
@@ -488,6 +489,7 @@ function new_LLCiao() {
   var f = {};
   f['get_stats'] = true;
   f['get_bundle_wksp'] = true;
+  f['get_bundle_srcdir'] = true;
   f['writeFile'] = true;
   f['readFile'] = true;
   f['read_stdout'] = true;
@@ -652,6 +654,14 @@ class CiaoWorker {
   async get_bundle_wksp(b) {
     await this.ensure_init(1);
     return await this.#async_('get_bundle_wksp', [b]);
+  };
+
+  /**
+   * Get workspace srcdir for the given bundle
+   */
+  async get_bundle_srcdir(b) {
+    await this.ensure_init(1);
+    return await this.#async_('get_bundle_srcdir', [b]);
   };
 
   /**
