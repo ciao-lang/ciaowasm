@@ -272,13 +272,15 @@ use_data_file. % Store files in a single data file per bundle
 % Prepare a bundle distribution and make it available in distdir
 dist_bundle(Bundle) :-
     ToWksp = ~distdir,
-    bundle_workspace(Bundle, Wksp),
+    Wksp = ~bundle_workspace(Bundle),
+    SrcDir = ~bundle_path(Bundle, '.'),
     dist_assets(Bundle, Wksp, ToWksp),
     dist_contents(Bundle, Wksp, ToWksp, Items, []),
     % Create .bundle.json file
     JSON = json([
         name = ~atmstr(Bundle),
-        wksp = ~atmstr(Wksp)
+        wksp = ~atmstr(Wksp),
+        srcdir = ~atmstr(SrcDir)
     | Items]),
     Str = ~json_to_string(JSON),
     wksp_mkpath(ToWksp, 'build/dist'),
