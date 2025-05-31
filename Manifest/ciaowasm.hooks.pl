@@ -7,6 +7,7 @@
 '$builder_hook'(item_nested(engwasm)).
 '$builder_hook'(engwasm:eng('src/ciaoengwasm', [
   usepath(at_bundle(core, 'engine')),
+  % cross('EMSCRIPTEN', wasm64) % TODO: allow both
   cross('EMSCRIPTEN', wasm32)
 ])).
 

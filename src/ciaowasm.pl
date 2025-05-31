@@ -25,6 +25,7 @@
 :- export(main/0).
 main :-
     ( get_arch(wasm32) -> true
+    ; get_arch(wasm64) -> true
     ; display(user_error, 'Please do not call me directly! Use ciao-prolog.js\n\n')
     ),
     query_init.

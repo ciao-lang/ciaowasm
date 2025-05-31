@@ -117,7 +117,7 @@
 prim(eng(_EngMainSpec, EngOpts), Bundle, install_wasm) :-
     % TODO: ad-hoc
     Bundle = ciaowasm, 
-    member(cross('EMSCRIPTEN', wasm32), EngOpts), % (Emscripten)
+    member(cross('EMSCRIPTEN', Arch), EngOpts), ( Arch = wasm32 ; Arch = wasm64 ), % (Emscripten)
     !,
     EngDef = eng_def(Bundle, _EngMainSpec, EngOpts),
     dist_engine(EngDef),

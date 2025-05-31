@@ -11,5 +11,6 @@
 :- engine_stubmain('main-ciaowasm.c').
 
 :- engine_opts([
+  % cross('EMSCRIPTEN', wasm64) % TODO: allow both
   cross('EMSCRIPTEN', wasm32)
 ]).
