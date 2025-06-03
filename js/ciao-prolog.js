@@ -361,6 +361,7 @@ function new_LLCiao() {
         //
         var bootfile = LLCiao.get_bundle_wksp('core') + "/build/bin/" + LLCiao.bootfile;
         let bootfile_ptr = EMCiao.stringToNewUTF8(bootfile);
+        if (EMCiao.POINTER_SIZE == 8) bootfile_ptr = BigInt(bootfile_ptr); /* TODO: may change in future Emscripten versions? */
         EMCiao._ciaowasm_init(bootfile_ptr);
         EMCiao._free(bootfile_ptr);
         /* Boot the engine, which will execute main/0 and exit with a live runtime */
@@ -385,6 +386,7 @@ function new_LLCiao() {
     let FS = LLCiao.getFS();
     FS.writeFile('/.q-i', query, {encoding: 'utf8'});
     let q_ptr = EMCiao.stringToNewUTF8("ciaowasm:query_one_fs");
+    if (EMCiao.POINTER_SIZE == 8) q_ptr = BigInt(q_ptr); /* TODO: may change in future Emscripten versions? */
     EMCiao._ciaowasm_query_begin(q_ptr);
     EMCiao._free(q_ptr);
     return query_result();
