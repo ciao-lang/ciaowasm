@@ -4,11 +4,16 @@
 
 '$builder_hook'(cmd('ciaowasm', [main='src/ciaowasm', static])).
 
-'$builder_hook'(item_nested(engwasm)).
-'$builder_hook'(engwasm:eng('src/ciaoengwasm', [
+'$builder_hook'(item_nested(engwasm32)).
+'$builder_hook'(engwasm32:eng('src/ciaoengwasm', [
   usepath(at_bundle(core, 'engine')),
-  % cross('EMSCRIPTEN', wasm64) % TODO: allow both
   cross('EMSCRIPTEN', wasm32)
+])).
+
+'$builder_hook'(item_nested(engwasm64)).
+'$builder_hook'(engwasm64:eng('src/ciaoengwasm', [
+  usepath(at_bundle(core, 'engine')),
+  cross('EMSCRIPTEN', wasm64)
 ])).
 
 '$builder_hook'(manual('ciaowasm', [main='doc/SETTINGS.pl'])).

@@ -18,12 +18,20 @@ This interface is used in the **Ciao Playground** and **(LPdoc) Active
 Logic Documents** to provide client-side Prolog execution in the
 browser.
 
+### Running from NodeJS
+
 Additionally, experimental support for [Node.js](https://nodejs.org)
 is available:
 ```
 $ node build/site/js/ciao-prolog.js
 Ciao 1.22.0 (2023-04-27 11:02:14 +0200) [EMSCRIPTENwasm32]
 ?- 
+```
+
+You can select different architectures `wasm32`, `wasm64` or hybrid
+`wasm32p64` by setting the `CIAOARCH` environment variable:
+```
+CIAOARCH=wasm32 node ../../../build/site/js/ciao-prolog.js
 ```
   
 ### Documentation of JavaScript bindings

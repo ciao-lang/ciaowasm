@@ -136,6 +136,7 @@ function new_LLCiao() {
   LLCiao.depends = []; // Bundle dependencies
   LLCiao.root_URL = null; // URL for CIAOROOT (null when not initialized yet)
   LLCiao.vers_URL = null; // versioning URL suffix
+  LLCiao.eng_cfg = null; // ENGCFG
 
   /* --------------------------------------------------------------------------- */
 
@@ -296,12 +297,13 @@ function new_LLCiao() {
    * `ciaoengwasm`).
    */
 
-  LLCiao.eng_load = async function(url, eng, vers) {
+  LLCiao.eng_load = async function(url, eng, vers, eng_cfg) {
     LLCiao.root_URL = url;
     LLCiao.vers_URL = vers;
+    LLCiao.eng_cfg = eng_cfg;
     /* Load CIAOENGINE (generated from emcc) */
-    if (!ENVIRONMENT_IS_NODE) console.log(`{loading engine '${eng}'}`);
-    await tryImportScript(LLCiao.res_URL("build/bin/" + eng + ".js"));
+    if (!ENVIRONMENT_IS_NODE) console.log(`{loading engine '${eng}' (${eng_cfg})}`);
+    await tryImportScript(LLCiao.res_URL("build/bin/" + eng_cfg + "/" + eng + ".js"));
     return true;
   };
 
@@ -314,8 +316,7 @@ function new_LLCiao() {
     /* Start the engine with hooks for initialization */
     EMCiao['locateFile'] = function(path, prefix) {
       // custom dirs
-      if (path.endsWith(".mem")) return LLCiao.res_URL("build/bin/" + path);
-      if (path.endsWith(".wasm")) return LLCiao.res_URL("build/bin/" + path);
+      if (path.endsWith(".wasm")) { return LLCiao.res_URL("build/bin/" + LLCiao.eng_cfg + "/" + path); }
       if (path.endsWith(".src.data")) return LLCiao.res_URL("build/dist/" + path);
       if (path.endsWith(".src.js")) return LLCiao.res_URL("build/dist/" + path);
       if (path.endsWith(".mods.data")) return LLCiao.res_URL("build/dist/" + path);
@@ -560,6 +561,7 @@ class CiaoWorker {
     this.eng_booted = false;
     this.root_URL = root_URL;
     this.vers_URL = vers_URL;
+    this.get_eng_cfg();
     //
     if (use_webworker) {
       var listeners = [];
@@ -571,6 +573,16 @@ class CiaoWorker {
       };
     } else {
       this.llciao = new_LLCiao();
+    }
+  }
+
+  /** Get ENGCFG */
+  get_eng_cfg() {
+    this.eng_cfg = "EMSCRIPTENwasm32"; /* TODO: customize */
+    if (ENVIRONMENT_IS_NODE) {
+      if (typeof process.env.CIAOARCH !== 'undefined') {
+        this.eng_cfg = "EMSCRIPTEN" + process.env.CIAOARCH;
+      }
     }
   }
 
@@ -620,7 +632,7 @@ class CiaoWorker {
         a.href = url;
         url = a.href; // TODO: needs to be absolute due to importScripts from Web Worker
       }
-      await this.#async_('eng_load', [url, "ciaoengwasm", this.vers_URL]);
+      await this.#async_('eng_load', [url, "ciaoengwasm", this.vers_URL, this.eng_cfg]);
     }
     if (level >= 2 && !this.eng_booted) {
       this.eng_booted = true;

@@ -120,8 +120,7 @@ prim(eng(_EngMainSpec, EngOpts), Bundle, install_wasm) :-
     member(cross('EMSCRIPTEN', Arch), EngOpts), ( Arch = wasm32 ; Arch = wasm64 ), % (Emscripten)
     !,
     EngDef = eng_def(Bundle, _EngMainSpec, EngOpts),
-    dist_engine(EngDef),
-    site_copy_files. % TODO: move elsewhere?
+    dist_engine(EngDef).
 prim(cmd(Path), Bundle, Cmd) :- atom(Path), !,
     % TODO: share
     path_split(Path, _, Name0),
@@ -133,6 +132,7 @@ prim(cmd(Name, _Opts), Bundle, install_wasm) :-
     % TODO: only those compatible? (e.g. not ciao-serve)
     !,
     ( Name = ciaowasm, Bundle = ciaowasm ->
+        dist_js_client, % TODO: move elsewhere? ciao-prolog.js calls ciaowasm so this is may be the place
         dist_cmd(Bundle, Name)
     ; true % TODO: ignore everything else at this moment
     ).
@@ -252,7 +252,7 @@ bundle_contents(Bundle, _, X) :- srcs(Bundle, X).
 :- use_module(library(bundle/bundle_paths),
     [bundle_workspace/2, bundle_path/3, bundle_path/4]).
 :- use_module(library(pathnames), [path_concat/3, path_split/3, path_splitext/3]).
-:- use_module(ciaobld(eng_defs), [eng_mainmod/2, eng_path/3]).
+:- use_module(ciaobld(eng_defs), [eng_mainmod/2, eng_path/3, eng_cfg/2]).
 :- use_module(ciaobld(config_common), [cmd_path/4]).
 
 :- use_module(library(format), [format/3]).
@@ -382,27 +382,24 @@ atmstr_list([X|Xs]) := [~atmstr(X) | ~atmstr_list(Xs)].
 
 rel_bin_dir := 'build/bin'.
 
-% Put together ciaoengwasm.js and the WASM compiled engine
+% Distribute the WASM compiled engine (both .wasm and .js) under a eng_cfg subdir
 dist_engine(Eng) :-
     ObjDir = ~eng_path(objdir, Eng),
-    EngName = ~eng_mainmod(Eng),
-    EngJs = ~atom_concat(EngName, '.js'),
-%       EngJsMem = ~atom_concat(EngJs, '.mem'), % (not in WASM)
-    EngWasm = ~atom_concat(EngName, '.wasm'),
+    EngName = ~eng_mainmod(Eng), % e.g., ciaoengwasm
+    EngJs = ~atom_concat(EngName, '.js'), % e.g., ciaoengwasm.js
+    EngWasm = ~atom_concat(EngName, '.wasm'), % e.g., ciaoengwasm.wasm
     %
-    DistBinDir = ~rel_dist(~distdir, ~rel_bin_dir),
-    mkpath(DistBinDir),
-    % OutJs = 'build/eng/ciaoengwasm/objs/ciaoengwasm.js',
-    OutJs = ~path_concat(DistBinDir, 'ciaoengwasm.js'),
+    DistBinDirCfg = ~path_concat(~rel_dist(~distdir, ~rel_bin_dir), ~eng_cfg(Eng)),
+    mkpath(DistBinDirCfg),
+    % TODO: avoid symlinks for ciaoengwasm engine, not needed
+    OutJs = ~path_concat(DistBinDirCfg, EngJs),
     copy_file(~bundle_path(ciaowasm, 'js/pre-js.js'), OutJs, [overwrite]),
     copy_file(~path_concat(ObjDir, EngJs), OutJs, [append]),
     copy_file(~bundle_path(ciaowasm, 'js/post-js.js'), OutJs, [append]),
-%       % Copy the engine .js.mem
-%       copy_file(~path_concat(ObjDir, EngJsMem), ~path_concat(DistBinDir, EngJsMem), [overwrite]),
     % Copy the engine .wasm
-    copy_file(~path_concat(ObjDir, EngWasm), ~path_concat(DistBinDir, EngWasm), [overwrite]).
+    copy_file(~path_concat(ObjDir, EngWasm), ~path_concat(DistBinDirCfg, EngWasm), [overwrite]).
 
-site_copy_files :-
+dist_js_client :-
     % Copy JS client
     SiteJs = ~path_concat(~site_root_dir, 'js'),
     mkpath(SiteJs),
