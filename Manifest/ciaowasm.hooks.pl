@@ -16,6 +16,12 @@
   cross('EMSCRIPTEN', wasm64)
 ])).
 
+'$builder_hook'(item_nested(engwasm32p64)).
+'$builder_hook'(engwasm32p64:eng('src/ciaoengwasm', [
+  usepath(at_bundle(core, 'engine')),
+  cross('EMSCRIPTEN', wasm32p64)
+])).
+
 '$builder_hook'(manual('ciaowasm', [main='doc/SETTINGS.pl'])).
 
 '$builder_hook'(prepare_build_bin) :-

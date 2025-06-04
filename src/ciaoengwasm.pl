@@ -12,6 +12,7 @@
 
 :- engine_opts([
   % (see ciaowasm.hooks.pl)
-  % cross('EMSCRIPTEN', wasm64)
   % cross('EMSCRIPTEN', wasm32)
+  % cross('EMSCRIPTEN', wasm64)
+  % cross('EMSCRIPTEN', wasm32p64)
 ]).

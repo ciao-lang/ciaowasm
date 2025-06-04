@@ -31,7 +31,7 @@ Ciao 1.22.0 (2023-04-27 11:02:14 +0200) [EMSCRIPTENwasm32]
 You can select different architectures `wasm32`, `wasm64` or hybrid
 `wasm32p64` by setting the `CIAOARCH` environment variable:
 ```
-CIAOARCH=wasm32 node ../../../build/site/js/ciao-prolog.js
+CIAOARCH=wasm64 node ../../../build/site/js/ciao-prolog.js
 ```
   
 ### Documentation of JavaScript bindings
