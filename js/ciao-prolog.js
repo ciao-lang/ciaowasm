@@ -1356,10 +1356,10 @@ if (ENVIRONMENT_IS_NODE) {
   const path = require('path');
   const process = require('process');
 
-  const printout = function(x) { process.stdout.write(x); };
-
   // Locate site path relative to the script dir
   var site_path = path.join(__dirname, '..');
+  // Locate ciaoroot relative to the script dir
+  var ciaoroot = path.join(__dirname, '../../..');
 
   /* (nodejs) Readline-based Comint (for interacting with a ToplevelProc) */
 
@@ -1368,9 +1368,9 @@ if (ENVIRONMENT_IS_NODE) {
     constructor(cproc) {
       this.cproc = cproc;
     }
-    async setup(rl) {
+    async setup() {
       // readline-based comint
-      this.comint = new RLComint(rl, this, {});
+      this.comint = new RLComint(this, {});
       // start
       await this.cproc.ensure_started(this.comint);
     }
@@ -1390,14 +1390,14 @@ if (ENVIRONMENT_IS_NODE) {
   }
 
   class RLComint {
-    constructor(rl, pg, opts) {
+    constructor(pg, opts) {
       this.prompt = '?- ';
       this.promptval = ' ? ';
 
       this.with_prompt = ( opts.noprompt === true ? false : true ); // interactive
       this.pg = pg; // associated pgcell
 
-      this.rl = rl; // readline
+      this.rl = null; // readline (created later)
       this.next_prompt = ''; // prompt to be displayed (may contain solution)
     }
 
@@ -1454,17 +1454,95 @@ if (ENVIRONMENT_IS_NODE) {
       }
     }
 
+    // Setup readline (or a fake readline for non terminals)
+    // TODO: readline when reading from a pipe interacts badly with fs! (JF)
+    #setup_readline() {
+      if (this.rl !== null) return;
+      // Setup readline
+      var is_terminal = process.stdin.isTTY && process.stdout.isTTY && process.env.TERM !== 'dumb';
+      if (is_terminal) {
+        const readline = require('readline/promises');
+        this.rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+          terminal: is_terminal
+        });
+        this.rl.on('SIGINT', function() {
+          console.log("Caught interrupt signal");
+          process.exit(1);
+        });
+      } else {
+        // Buffered readline for non-TTY (e.g., piped input)
+        this.rl = {
+          buffer: '',
+          reader: null,
+          async question(prompt) {
+            if (prompt) process.stdout.write(prompt);
+            // Initialize reader if not already done
+            if (!this.reader) {
+              process.stdin.setEncoding('utf8');
+              this.reader = process.stdin[Symbol.asyncIterator]();
+            }
+            // Keep reading chunks until we have a complete line
+            while (true) {
+              const newlineIndex = this.buffer.indexOf('\n');
+              const crlfIndex = this.buffer.indexOf('\r\n');
+              const lineEndIndex = crlfIndex !== -1 ? crlfIndex : newlineIndex;
+              if (lineEndIndex !== -1) {
+                // We have a complete line
+                const line = this.buffer.slice(0, lineEndIndex);
+                this.buffer = this.buffer.slice(lineEndIndex + (crlfIndex !== -1 ? 2 : 1));
+                return line;
+              }
+              // Need more data
+              try {
+                const { value, done } = await this.reader.next();
+                if (done) {
+                  if (this.buffer === '') {
+                    const error = new Error('Cannot read after end of stream');
+                    error.code = 'ERR_USE_AFTER_CLOSE';
+                    throw error;
+                  }
+                  // End of input - return whatever is left in buffer
+                  const remainingLine = this.buffer;
+                  this.buffer = '';
+                  return remainingLine;
+                }
+                this.buffer += value;
+              } catch (error) {
+                // Handle stream errors
+                throw error;
+              }
+            }
+          },
+          close() {
+            this.buffer = '';
+            this.reader = null;
+          }
+        };
+      }
+      //  rl.on('close', function() { // input ended
+      //    rl_closed = true; // TODO: use
+      //    process.exit(0);
+      //  });
+    }
+
     /* Interaction loop */
     async loop() {
       const cproc = this.pg.cproc;
       let q_prompt = this.prompt;
+      this.#setup_readline();
       while(true) {
         let text;
         try {
           text = await this.rl.question(q_prompt);
         } catch(err) {
-          console.log('Err: ' + Err);
-          process.exit(1);
+          if (err.code === 'ERR_USE_AFTER_CLOSE') {
+            break; // no more queries, stop gracefully
+          } else {
+            console.log('Err: ' + err);
+            process.exit(1);
+          }
         }
         // TODO: do not capture 'halt.' here, set status from Prolog (so that exit code is properly notified)
         if (text.slice(-1) === '.' && text.slice(0, -1) === "halt") {
@@ -1474,45 +1552,28 @@ if (ENVIRONMENT_IS_NODE) {
         q_prompt = this.next_prompt;
         this.next_prompt = "";
       }
+      this.rl.close();
     }
   }
 
   toplevelCfg.statistics = false;
   use_webworker = false;
 
-  // Setup readline
-  const readline = require('readline/promises');
-  var is_terminal = process.stdout.isTTY && process.env.TERM !== 'dumb';
-  let rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: is_terminal
-  });
-  rl.on('SIGINT', function() {
-    console.log("Caught interrupt signal");
-    process.exit(1);
-  });
-  rl.on('close', function() { // input ended
-    process.exit(0);
-  });
-
   (async () => {
     // Start a new toplevel and connect to a RLPGCell for interaction
     const cproc = new ToplevelProc(site_path+'/ciao/',''); 
     var pg = new RLPGCell(cproc);
-    await pg.setup(rl);
+    await pg.setup();
     
-    // Mount current directory as /local
     // TODO: customize
-    var currdir = process.cwd();
+    // Mount current directory as /local
     var dstdir = '/local';
-    cproc.w.llciao.mount_dir(currdir, dstdir);
+    cproc.w.llciao.mount_dir(process.cwd(), dstdir);
+    cproc.w.llciao.mount_dir(ciaoroot, ciaoroot);
     // Change directory
     // FS.chdir(dstdir); // TODO: FS.chdir does not seem to work, change from Prolog
     await cproc.muted_query_dumpout(`working_directory(_,'${dstdir}')`);
     // Enter loop
     await pg.comint.loop();
-    // Exit
-    rl.close();
   })();
 }
