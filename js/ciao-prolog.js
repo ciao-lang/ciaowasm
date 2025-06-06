@@ -578,7 +578,7 @@ class CiaoWorker {
 
   /** Get ENGCFG */
   get_eng_cfg() {
-    this.eng_cfg = "EMSCRIPTENwasm32"; /* TODO: customize */
+    this.eng_cfg = "EMSCRIPTENwasm32p64"; /* TODO: customize */
     if (ENVIRONMENT_IS_NODE) {
       if (typeof process.env.CIAOARCH !== 'undefined') {
         this.eng_cfg = "EMSCRIPTEN" + process.env.CIAOARCH;
